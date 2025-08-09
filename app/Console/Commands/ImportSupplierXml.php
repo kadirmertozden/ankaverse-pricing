@@ -2,208 +2,218 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Product;
-use GuzzleHttp\Client;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
 use SimpleXMLElement;
-use Throwable;
+use XMLReader;
 
 class ImportSupplierXml extends Command
 {
-    /**
-     * Komut imzası:
-     *  php artisan supplier:import {url}
-     */
-    protected $signature = 'supplier:import {url : XML feed URL}';
+    protected $signature = 'import:supplier {url? : (opsiyonel) XML feed URL}';
+    protected $description = 'Tedarikçi XML’ini stream ederek içeri alır ve products tablosuna upsert eder.';
 
-    protected $description = 'Tedarikçi XML\'ini indirip ürünleri veritabanına yazar.';
+    /** Kaç kayıtta bir toplu upsert yapılacak */
+    private int $chunkSize = 1000;
 
     public function handle(): int
     {
+        libxml_use_internal_errors(true);
+
+        // 1) XML’i al: URL verilmişse indir, verilmediyse storage’daki mevcut dosyayı kullan
         $url = (string) $this->argument('url');
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            $this->error('Geçersiz URL.');
-            return self::INVALID;
+        $storagePath = 'supplier.xml';
+
+        if ($url) {
+            $this->info("Downloading XML: {$url}");
+            try {
+                $resp = Http::timeout(120)->withHeaders([
+                    'Accept' => 'application/xml,text/xml,*/*',
+                    'User-Agent' => 'ankaverse-pricing/1.0',
+                ])->get($url);
+
+                if (!$resp->ok()) {
+                    $this->error("HTTP hata: {$resp->status()}");
+                    return self::FAILURE;
+                }
+
+                Storage::put($storagePath, $resp->body());
+                $this->line('Saved raw XML to '.Storage::path($storagePath));
+            } catch (\Throwable $e) {
+                $this->error('İndirme hatası: '.$e->getMessage());
+                return self::FAILURE;
+            }
+        } else {
+            if (!Storage::exists($storagePath)) {
+                $this->error("XML bulunamadı: storage/app/{$storagePath}. Komutu URL ile çalıştır.");
+                return self::FAILURE;
+            }
+            $this->line('Using existing '.Storage::path($storagePath));
         }
 
+        // 2) XML’i stream ederek oku
+        $filePath = Storage::path($storagePath);
+        $reader = new XMLReader();
+        if (!$reader->open($filePath)) {
+            $this->error('XML açılamadı.');
+            return self::FAILURE;
+        }
+
+        $rows = [];
+        $count = 0;
+        $commissionDefault = (int) (config('pricing.default_commission', 0));
+
+        $this->info('Import started (stream mode)…');
+
         try {
-            $this->info("Downloading XML: {$url}");
+            while ($reader->read()) {
+                // Hem <Product> hem <product> yakala
+                if (
+                    $reader->nodeType === XMLReader::ELEMENT &&
+                    (strcasecmp($reader->name, 'Product') === 0 || strcasecmp($reader->name, 'product') === 0)
+                ) {
+                    $xml = new SimpleXMLElement($reader->readOuterXML());
 
-            $client = new Client([
-                'timeout' => 30,
-                'connect_timeout' => 10,
-                'headers' => [
-                    'User-Agent' => 'Ankaverse-Importer/1.0',
-                    'Accept'     => 'application/xml,text/xml,*/*',
-                ],
-            ]);
+                    // Ortak getter
+                    $g = static function (?SimpleXMLElement $x, string $k, $def = null) {
+                        return ($x && isset($x->{$k})) ? trim((string) $x->{$k}) : $def;
+                    };
 
-            $resp = $client->get($url);
-            $xmlString = (string) $resp->getBody();
+                    // İki farklı şemayı tespit et
+                    $hasA = $g($xml, 'StockCode') !== null || $g($xml, 'Name') !== null;              // Şema-A
+                    $hasB = $g($xml, 'ProductCode') !== null || $g($xml, 'ProductName') !== null;     // Şema-B
 
-            // Ham XML'i kaydet
-            Storage::put('supplier.xml', $xmlString);
-            $this->info('Saved raw XML to storage/app/supplier.xml');
+                    // Ortak alanlar
+                    $stockCode = null;
+                    $name      = null;
+                    $priceVat  = 0.0;
+                    $stockAmt  = 0;
+                    $currency  = null;
+                    $vatRate   = null;
+                    $category  = null;
+                    $volume    = null;
+                    $width = $length = $height = 0.0;
+                    $brand = $gtin = $images = $desc = null;
 
-            // XML parse
-            $xml = new SimpleXMLElement($xmlString);
+                    // Şema-A: (ilk feed)
+                    if ($hasA) {
+                        $stockCode = $g($xml, 'StockCode');
+                        $name      = $g($xml, 'Name');
+                        $priceVat  = (float) ($g($xml, 'PriceInclusiveVat', 0));
+                        $stockAmt  = (int)   ($g($xml, 'StockAmount', 0));
+                        $currency  = $g($xml, 'CurrencyCode');
+                        $vatRate   = $g($xml, 'VatRate');
+                        $category  = $g($xml, 'CategoryBreadCrumb');
+                        $volume    = $g($xml, 'VolumetricWeight');
+                        $width     = (float) ($g($xml, 'Width', 0));
+                        $length    = (float) ($g($xml, 'Length', 0));
+                        $height    = (float) ($g($xml, 'Height', 0));
+                        $brand     = $g($xml, 'Brand');
+                        $gtin      = $g($xml, 'Gtin');
 
-            // Ürün düğümleri: hem Product hem product dene
-            $nodes = $xml->xpath('//Product');
-            if (!$nodes || count($nodes) === 0) {
-                $nodes = $xml->xpath('//product');
-            }
-            if (!$nodes || count($nodes) === 0) {
-                $this->warn('No <Product> nodes found via XPath //Product|//product');
-                $this->line('Import finished. Total: 0');
-                return self::SUCCESS;
-            }
-
-            // Yardımcılar
-            $txt = fn($v) => is_string($v) ? trim($v) : trim((string) $v);
-
-            $get = function ($node, array $candidates, $default = null) use ($txt) {
-                foreach ($candidates as $tag) {
-                    if (isset($node->$tag)) {
-                        $val = $txt($node->$tag);
-                        if ($val !== '') {
-                            return $val;
+                        // Görseller farklı gelebilir
+                        if ($g($xml, 'Images')) {
+                            $images = (string) $g($xml, 'Images');
+                        } elseif (isset($xml->Images)) {
+                            // Image1, Image2… gibi alt elemanlar
+                            $imgArr = [];
+                            foreach ($xml->Images->children() as $img) {
+                                $val = trim((string) $img);
+                                if ($val !== '') $imgArr[] = $val;
+                            }
+                            $images = $imgArr ? json_encode($imgArr, JSON_UNESCAPED_SLASHES) : null;
                         }
+
+                        $desc      = $g($xml, 'Description');
                     }
-                }
-                return $default;
-            };
 
-            $num = function ($value, $default = 0.0) use ($txt) {
-                if ($value === null) return $default;
-                $s = $txt($value);
-                if ($s === '' || $s === null) return $default;
-                // boşluk ve NBSP temizle
-                $s = str_replace(["\xC2\xA0", ' '], '', $s);
-                // ondalık ayraç normalize
-                $s = str_replace(',', '.', $s);
-                // Binlik ayraçları olabilirse temizlemek için nokta/virgül kombinasyonlarını ele aldık
-                // (yukarıdaki dönüşüm çoğu durumda yeterli)
-                return is_numeric($s) ? (float) $s : $default;
-            };
+                    // Şema-B: (ikinci feed)
+                    if ($hasB) {
+                        $stockCode = $stockCode ?: $g($xml, 'ProductCode');
+                        $name      = $name      ?: $g($xml, 'ProductName');
 
-            $count = 0;
+                        if (!$priceVat) { $priceVat = (float) ($g($xml, 'Price1', 0)); }
+                        if (!$stockAmt) { $stockAmt = (int)   ($g($xml, 'Quantity', 0)); }
 
-            foreach ($nodes as $p) {
-                try {
-                    // Çoklu adayla alan okumaları
-                    $stockCode = $get($p, ['StockCode', 'ProductCode']);
-                    $name      = $get($p, ['Name', 'ProductName']);
+                        $currency  = $currency ?: $g($xml, 'Currency');
+                        $vatRate   = $vatRate  ?: $g($xml, 'TaxRate');
+                        $category  = $category ?: $g($xml, 'Category');
+                        $volume    = $volume   ?: $g($xml, 'Volume');
 
+                        // Bazı ikinci feed’lerde Images boş string olabiliyor — boşsa null bırak
+                        $imgStr = $g($xml, 'Images');
+                        $images = $images ?: ($imgStr !== '' ? $imgStr : null);
+
+                        $desc    = $desc ?: $g($xml, 'Description');
+                    }
+
+                    // Zorunlu alan doğrulaması
                     if (!$stockCode || !$name) {
-                        // zorunlu iki alan yoksa bu ürünü atla
-                        $this->warn("Skip: missing stockCode/name");
+                        // eksik ise atla (loglamak istersen buraya yaz)
                         continue;
                     }
 
-                    $buyPriceVat = $num($get($p, ['PriceInclusiveVat', 'PriceTL', 'Price', 'price'], 0), 0);
-                    $brand       = $get($p, ['Brand', 'brand']);
-                    $category    = $get($p, ['CategoryBreadCrumb', 'Category', 'categoryBreadCrumb']);
-                    $currency    = $get($p, ['CurrencyCode', 'Currency'], 'TL');
-                    $vatRate     = $num($get($p, ['VatRate', 'VAT', 'KDV']), null);
-
-                    $width  = $num($get($p, ['Width', 'width']), 0);
-                    $length = $num($get($p, ['Length', 'length']), 0);
-                    $height = $num($get($p, ['Height', 'height']), 0);
-
-                    $volumetric = $num($get($p, ['VolumetricWeight', 'CargoDesi', 'Desi']), null);
-                    $stockAmt   = (int) $num($get($p, ['StockAmount', 'Stock', 'StockQty']), 0);
-                    $gtin       = $get($p, ['Gtin','GTIN','EAN','Barcode']);
-
-                    // Görseller
-                    $images = [];
-                    if (isset($p->Images)) {
-                        foreach ($p->Images->children() as $img) {
-                            $u = $txt($img);
-                            if ($u) $images[] = $u;
-                        }
-                    } else {
-                        foreach (['Image','Image1','ImageURL','ImageUrl'] as $tag) {
-                            if (isset($p->$tag)) {
-                                $u = $txt($p->$tag);
-                                if ($u) $images[] = $u;
-                            }
-                        }
-                    }
-
-                    // Açıklama (HTML içerebilir)
-                    $description = $get($p, ['Description','LongDescription','Desc']);
-
-                    // Basit bir komisyon kuralı (istersen değiştir/sil)
-                    $commission = $this->computeCommission($category, $brand);
-
-                    Product::updateOrCreate(
-                        ['stock_code' => $stockCode],
-                        [
-                            'name'              => $name,
-                            'brand'             => $brand,
-                            'category_path'     => $category,
-                            'stock_amount'      => $stockAmt,
-                            'currency_code'     => $currency,
-                            'vat_rate'          => $vatRate,
-                            'gtin'              => $gtin,
-                            'images'            => $images ? json_encode($images) : null,
-                            'description'       => $description,
-
-                            'buy_price_vat'     => $buyPriceVat,
-                            'commission_rate'   => $commission,
-
-                            'width'             => $width,
-                            'length'            => $length,
-                            'height'            => $height,
-                            'volumetric_weight' => $volumetric,
-                        ]
-                    );
+                    $rows[] = [
+                        'stock_code'        => $stockCode,
+                        'name'              => $name,
+                        'buy_price_vat'     => $priceVat,
+                        'commission_rate'   => $commissionDefault,
+                        'width'             => $width,
+                        'length'            => $length,
+                        'height'            => $height,
+                        'brand'             => $brand,
+                        'category_path'     => $category,
+                        'stock_amount'      => $stockAmt,
+                        'currency_code'     => $currency,
+                        'vat_rate'          => $vatRate,
+                        'gtin'              => $gtin,
+                        'images'            => $images,
+                        'description'       => $desc,
+                        'volumetric_weight' => $volume,
+                        'updated_at'        => now(),
+                        'created_at'        => now(),
+                    ];
 
                     $count++;
-                } catch (Throwable $e) {
-                    // tek tek ürün hatası Import’u durdurmasın
-                    $this->warn("Row error for stock_code={$stockCode}: {$e->getMessage()}");
+                    if (count($rows) >= $this->chunkSize) {
+                        $this->flushChunk($rows);
+                        $rows = [];
+                        $this->line("…{$count} kayıt işlendi");
+                    }
                 }
             }
 
-            $this->info("Import finished. Total: {$count}");
-            return self::SUCCESS;
-        } catch (Throwable $e) {
-            $this->error($e->getMessage());
-            return self::FAILURE;
+            // son kalanlar
+            if ($rows) {
+                $this->flushChunk($rows);
+                $rows = [];
+            }
+
+        } finally {
+            $reader->close();
         }
+
+        $this->info("Import finished. Total: {$count}");
+        return self::SUCCESS;
     }
 
     /**
-     * Kategori/markaya göre basit komisyon kuralı.
-     * İhtiyacına göre düzenle ya da 0 döndür.
+     * Chunk upsert
      */
-    private function computeCommission(?string $categoryPath, ?string $brand): int
+    private function flushChunk(array $rows): void
     {
-        $cat = mb_strtolower((string) $categoryPath);
-
-        // örnek kurallar
-        $map = [
-            'kamp'        => 15,
-            'bisiklet'    => 12,
-            'av & balık'  => 14,
-            'outdoor'     => 13,
-            'fitness'     => 11,
-        ];
-
-        foreach ($map as $needle => $rate) {
-            if ($cat !== '' && mb_strpos($cat, $needle) !== false) {
-                return $rate;
-            }
-        }
-
-        // markaya göre örnek
-        if ($brand && mb_strtolower($brand) === 'ankaverse') {
-            return 10;
-        }
-
-        return 0; // default
+        // Not: index keys product.stock_code üzerinde olmalı (unique önerilir)
+        DB::table('products')->upsert(
+            $rows,
+            ['stock_code'], // eşsiz anahtar
+            [
+                'name','buy_price_vat','commission_rate',
+                'width','length','height',
+                'brand','category_path','stock_amount',
+                'currency_code','vat_rate','gtin','images',
+                'description','volumetric_weight','updated_at'
+            ]
+        );
     }
 }
