@@ -4,216 +4,291 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
-use SimpleXMLElement;
-use XMLReader;
+use Illuminate\Support\Facades\Storage;
 
 class ImportSupplierXml extends Command
 {
-    protected $signature = 'import:supplier {url? : (opsiyonel) XML feed URL}';
-    protected $description = 'Tedarikçi XML’ini stream ederek içeri alır ve products tablosuna upsert eder.';
+    protected $signature = 'import:supplier
+        {--url= : XML feed URL\'i (örn: https://yenitoptanci.com/xxxx)}
+        {--file= : Yerel XML yolu (örn: storage/app/private/supplier.xml)}
+        {--chunk=500 : Kaç üründe bir toplu upsert yapılsın}';
 
-    /** Kaç kayıtta bir toplu upsert yapılacak */
-    private int $chunkSize = 1000;
+    protected $description = 'Tedarikçi XML ürünlerini bellek dostu şekilde içe aktarır / günceller.';
+
+    /** Kaynak XML dosyasını indirin/yerelleyin ve tam dosya yolunu döndürün */
+    protected function resolveSourcePath(): string
+    {
+        $dst = Storage::path('private/supplier.xml');
+
+        if ($url = $this->option('url')) {
+            $this->info('XML indiriliyor: '.$url);
+            $res = Http::timeout(180)->withHeaders([
+                'User-Agent' => 'LaravelImporter/1.0',
+                'Accept'     => 'application/xml,text/xml,*/*',
+            ])->get($url);
+
+            if (!$res->ok()) {
+                throw new \RuntimeException("URL indirilemedi. HTTP ".$res->status());
+            }
+            Storage::put('private/supplier.xml', $res->body());
+            $this->line('Kaydedildi: '.$dst);
+            return $dst;
+        }
+
+        if ($file = $this->option('file')) {
+            if (!is_file($file)) {
+                throw new \InvalidArgumentException("Yerel dosya bulunamadı: $file");
+            }
+            Storage::put('private/supplier.xml', file_get_contents($file));
+            $this->line('Kaydedildi: '.$dst);
+            return $dst;
+        }
+
+        // Varsayılan: daha önce kaydedilmiş dosya
+        if (!is_file($dst)) {
+            throw new \InvalidArgumentException("Kaynak yok. --url veya --file verin ya da $dst oluşturun.");
+        }
+
+        return $dst;
+    }
 
     public function handle(): int
     {
         libxml_use_internal_errors(true);
 
-        // 1) XML’i al: URL verilmişse indir, verilmediyse storage’daki mevcut dosyayı kullan
-        $url = (string) $this->argument('url');
-        $storagePath = 'supplier.xml';
-
-        if ($url) {
-            $this->info("Downloading XML: {$url}");
-            try {
-                $resp = Http::timeout(120)->withHeaders([
-                    'Accept' => 'application/xml,text/xml,*/*',
-                    'User-Agent' => 'ankaverse-pricing/1.0',
-                ])->get($url);
-
-                if (!$resp->ok()) {
-                    $this->error("HTTP hata: {$resp->status()}");
-                    return self::FAILURE;
-                }
-
-                Storage::put($storagePath, $resp->body());
-                $this->line('Saved raw XML to '.Storage::path($storagePath));
-            } catch (\Throwable $e) {
-                $this->error('İndirme hatası: '.$e->getMessage());
-                return self::FAILURE;
-            }
-        } else {
-            if (!Storage::exists($storagePath)) {
-                $this->error("XML bulunamadı: storage/app/{$storagePath}. Komutu URL ile çalıştır.");
-                return self::FAILURE;
-            }
-            $this->line('Using existing '.Storage::path($storagePath));
-        }
-
-        // 2) XML’i stream ederek oku
-        $filePath = Storage::path($storagePath);
-        $reader = new XMLReader();
-        if (!$reader->open($filePath)) {
-            $this->error('XML açılamadı.');
+        try {
+            $path  = $this->resolveSourcePath();
+            $chunk = max(1, (int)$this->option('chunk'));
+        } catch (\Throwable $e) {
+            $this->error($e->getMessage());
             return self::FAILURE;
         }
 
-        $rows = [];
-        $count = 0;
-        $commissionDefault = (int) (config('pricing.default_commission', 0));
-
-        $this->info('Import started (stream mode)…');
-
-        try {
-            while ($reader->read()) {
-                // Hem <Product> hem <product> yakala
-                if (
-                    $reader->nodeType === XMLReader::ELEMENT &&
-                    (strcasecmp($reader->name, 'Product') === 0 || strcasecmp($reader->name, 'product') === 0)
-                ) {
-                    $xml = new SimpleXMLElement($reader->readOuterXML());
-
-                    // Ortak getter
-                    $g = static function (?SimpleXMLElement $x, string $k, $def = null) {
-                        return ($x && isset($x->{$k})) ? trim((string) $x->{$k}) : $def;
-                    };
-
-                    // İki farklı şemayı tespit et
-                    $hasA = $g($xml, 'StockCode') !== null || $g($xml, 'Name') !== null;              // Şema-A
-                    $hasB = $g($xml, 'ProductCode') !== null || $g($xml, 'ProductName') !== null;     // Şema-B
-
-                    // Ortak alanlar
-                    $stockCode = null;
-                    $name      = null;
-                    $priceVat  = 0.0;
-                    $stockAmt  = 0;
-                    $currency  = null;
-                    $vatRate   = null;
-                    $category  = null;
-                    $volume    = null;
-                    $width = $length = $height = 0.0;
-                    $brand = $gtin = $images = $desc = null;
-
-                    // Şema-A: (ilk feed)
-                    if ($hasA) {
-                        $stockCode = $g($xml, 'StockCode');
-                        $name      = $g($xml, 'Name');
-                        $priceVat  = (float) ($g($xml, 'PriceInclusiveVat', 0));
-                        $stockAmt  = (int)   ($g($xml, 'StockAmount', 0));
-                        $currency  = $g($xml, 'CurrencyCode');
-                        $vatRate   = $g($xml, 'VatRate');
-                        $category  = $g($xml, 'CategoryBreadCrumb');
-                        $volume    = $g($xml, 'VolumetricWeight');
-                        $width     = (float) ($g($xml, 'Width', 0));
-                        $length    = (float) ($g($xml, 'Length', 0));
-                        $height    = (float) ($g($xml, 'Height', 0));
-                        $brand     = $g($xml, 'Brand');
-                        $gtin      = $g($xml, 'Gtin');
-
-                        // Görseller farklı gelebilir
-                        if ($g($xml, 'Images')) {
-                            $images = (string) $g($xml, 'Images');
-                        } elseif (isset($xml->Images)) {
-                            // Image1, Image2… gibi alt elemanlar
-                            $imgArr = [];
-                            foreach ($xml->Images->children() as $img) {
-                                $val = trim((string) $img);
-                                if ($val !== '') $imgArr[] = $val;
-                            }
-                            $images = $imgArr ? json_encode($imgArr, JSON_UNESCAPED_SLASHES) : null;
-                        }
-
-                        $desc      = $g($xml, 'Description');
-                    }
-
-                    // Şema-B: (ikinci feed)
-                    if ($hasB) {
-                        $stockCode = $stockCode ?: $g($xml, 'ProductCode');
-                        $name      = $name      ?: $g($xml, 'ProductName');
-
-                        if (!$priceVat) { $priceVat = (float) ($g($xml, 'Price1', 0)); }
-                        if (!$stockAmt) { $stockAmt = (int)   ($g($xml, 'Quantity', 0)); }
-
-                        $currency  = $currency ?: $g($xml, 'Currency');
-                        $vatRate   = $vatRate  ?: $g($xml, 'TaxRate');
-                        $category  = $category ?: $g($xml, 'Category');
-                        $volume    = $volume   ?: $g($xml, 'Volume');
-
-                        // Bazı ikinci feed’lerde Images boş string olabiliyor — boşsa null bırak
-                        $imgStr = $g($xml, 'Images');
-                        $images = $images ?: ($imgStr !== '' ? $imgStr : null);
-
-                        $desc    = $desc ?: $g($xml, 'Description');
-                    }
-
-                    // Zorunlu alan doğrulaması
-                    if (!$stockCode || !$name) {
-                        // eksik ise atla (loglamak istersen buraya yaz)
-                        continue;
-                    }
-
-                    $rows[] = [
-                        'stock_code'        => $stockCode,
-                        'name'              => $name,
-                        'buy_price_vat'     => $priceVat,
-                        'commission_rate'   => $commissionDefault,
-                        'width'             => $width,
-                        'length'            => $length,
-                        'height'            => $height,
-                        'brand'             => $brand,
-                        'category_path'     => $category,
-                        'stock_amount'      => $stockAmt,
-                        'currency_code'     => $currency,
-                        'vat_rate'          => $vatRate,
-                        'gtin'              => $gtin,
-                        'images'            => $images,
-                        'description'       => $desc,
-                        'volumetric_weight' => $volume,
-                        'updated_at'        => now(),
-                        'created_at'        => now(),
-                    ];
-
-                    $count++;
-                    if (count($rows) >= $this->chunkSize) {
-                        $this->flushChunk($rows);
-                        $rows = [];
-                        $this->line("…{$count} kayıt işlendi");
-                    }
-                }
-            }
-
-            // son kalanlar
-            if ($rows) {
-                $this->flushChunk($rows);
-                $rows = [];
-            }
-
-        } finally {
-            $reader->close();
+        $xr = new \XMLReader();
+        if (!$xr->open($path, null, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_COMPACT)) {
+            $this->error('XML açılamadı: '.$path);
+            return self::FAILURE;
         }
 
-        $this->info("Import finished. Total: {$count}");
+        $total = 0;
+        $batch = [];
+
+        $this->info('İçe aktarma başladı…');
+
+        while ($xr->read()) {
+            if ($xr->nodeType !== \XMLReader::ELEMENT) {
+                continue;
+            }
+
+            // <Product> veya <product>
+            if (strcasecmp($xr->name, 'Product') !== 0) {
+                continue;
+            }
+
+            // Bu node’u tek başına SimpleXMLElement’e dönüştür
+            $xmlString = $xr->readOuterXML();
+            if ($xmlString === '' || $xmlString === false) {
+                continue;
+            }
+
+            try {
+                $node = new \SimpleXMLElement($xmlString);
+            } catch (\Throwable $e) {
+                // Bozuk node’u atla
+                continue;
+            }
+
+            $row = $this->mapProduct($node);
+
+            if ($row === null) {
+                // zorunlu alanlardan biri yoksa atla
+                continue;
+            }
+
+            $batch[] = $row;
+            $total++;
+
+            // CHUNK dolduysa yaz
+            if (count($batch) >= $chunk) {
+                $this->upsertBatch($batch);
+                $this->line("↳ yazıldı: +".count($batch));
+                $batch = [];
+            }
+        }
+
+        // kalanlar
+        if (!empty($batch)) {
+            $this->upsertBatch($batch);
+            $this->line("↳ yazıldı: +".count($batch));
+        }
+
+        $xr->close();
+
+        $this->info("Bitti. Toplam: {$total}");
         return self::SUCCESS;
     }
 
-    /**
-     * Chunk upsert
-     */
-    private function flushChunk(array $rows): void
+    /** XML Product node -> DB row */
+    protected function mapProduct(\SimpleXMLElement $p): ?array
     {
-        // Not: index keys product.stock_code üzerinde olmalı (unique önerilir)
+        // feed’de gördüğümüz alan adları
+        $stockCode   = $this->txt($p->ProductCode ?? null);
+        $productName = $this->txt($p->ProductName ?? null);
+
+        if (!$stockCode || !$productName) {
+            return null;
+        }
+
+        $category    = $this->txt($p->Category ?? null);
+        $currency    = $this->txt($p->Currency ?? null);
+        $descRaw     = $this->txt($p->Description ?? null, allowHtml: true);
+        $price1      = $this->num($p->Price1 ?? null);
+        $qty         = $this->int($p->Quantity ?? null);
+        $tax         = $this->txt($p->TaxRate ?? null);
+        $volume      = $this->txt($p->Volume ?? null);
+        $gtin        = $this->txt($p->Gtin ?? null); // varsa
+
+        // Görselleri toparla (hem düz metin hem alt tag’ler)
+        $images = $this->collectImages($p->Images ?? null);
+
+        // Açıklama HTML normalize
+        $description = $this->normalizeDescription($descRaw);
+
+        // Sütun eşleşmeleri – projendeki kolonlara göre uyarlayabilirsin
+        $now = now();
+
+        return [
+            // Upsert eşsiz anahtar: stock_code
+            'stock_code'        => $stockCode,
+            'name'              => $productName,
+            'brand'             => null, // feed vermiyor
+            'category_path'     => $category ?: null,
+            'stock_amount'      => $qty,
+            'currency_code'     => $currency ?: null,
+            'vat_rate'          => $tax ?: null,
+            'gtin'              => $gtin ?: null,
+            'images'            => $images ? json_encode($images, JSON_UNESCAPED_SLASHES) : null,
+            'description'       => $description,
+            'buy_price_vat'     => $price1 !== null ? number_format($price1, 2, '.', '') : '0.00',
+            'commission_rate'   => 0,
+            'width'             => '0.00',
+            'length'            => '0.00',
+            'height'            => '0.00',
+            'volumetric_weight' => $volume ?: null,
+            'updated_at'        => $now,
+            'created_at'        => $now, // upsert created_at’ı korur/ayarlar
+        ];
+    }
+
+    /** Toplu upsert – Laravel 8+ */
+    protected function upsertBatch(array $rows): void
+    {
+        // products tablosunda stock_code unique olmalı
         DB::table('products')->upsert(
             $rows,
-            ['stock_code'], // eşsiz anahtar
+            ['stock_code'], // conflict key
             [
-                'name','buy_price_vat','commission_rate',
-                'width','length','height',
-                'brand','category_path','stock_amount',
-                'currency_code','vat_rate','gtin','images',
-                'description','volumetric_weight','updated_at'
+                'name','brand','category_path','stock_amount','currency_code','vat_rate','gtin',
+                'images','description','buy_price_vat','commission_rate','width','length','height',
+                'volumetric_weight','updated_at'
             ]
         );
+    }
+
+    /** Metin çıkar (trim), istersen HTML’e izin ver */
+    protected function txt($val, bool $allowHtml = false): ?string
+    {
+        if ($val === null) return null;
+        $s = (string)$val;
+
+        if ($s === '') return null;
+
+        if ($allowHtml) {
+            // CDATA vb. kalsın, ama baş/son boşluk temizle
+            return trim($s);
+        }
+        // düz metin
+        return trim(strip_tags($s));
+    }
+
+    /** Tam sayı */
+    protected function int($val): int
+    {
+        $s = $this->txt($val) ?? '0';
+        return (int)preg_replace('/[^\d\-]/', '', $s);
+    }
+
+    /** Ondalık sayı */
+    protected function num($val): ?float
+    {
+        $s = $this->txt($val);
+        if ($s === null) return null;
+
+        // 1.234,56 veya 1,234.56 gibi yazımlar olabilir
+        $s = str_replace([' ', "\u{00A0}"], '', $s);
+        // virgül ondalıksa düzelt
+        if (preg_match('/^\d{1,3}(\.\d{3})+,\d+$/', $s)) {
+            $s = str_replace('.', '', $s);
+            $s = str_replace(',', '.', $s);
+        } elseif (preg_match('/^\d+,\d+$/', $s)) {
+            $s = str_replace(',', '.', $s);
+        } else {
+            // binlik ayraçları kaldır
+            $s = preg_replace('/(?<=\d)[,](?=\d{3}(\D|$))/', '', $s);
+        }
+
+        if (!is_numeric($s)) return null;
+        return (float)$s;
+    }
+
+    /** Images alanını çok biçimli yakala */
+    protected function collectImages($imagesNode): array
+    {
+        $out = [];
+
+        if ($imagesNode === null) return $out;
+
+        // <Images> düz metin ise: virgül/; ile ayrılmış olabilir
+        $raw = (string)$imagesNode;
+        if ($raw !== '' && strip_tags($raw) === $raw) {
+            foreach (preg_split('/[;,]/', $raw) as $u) {
+                $u = trim($u);
+                if ($this->isUrl($u)) $out[] = $u;
+            }
+        }
+
+        // Alt elemanlar varsa (<Image1>..</Image1>)
+        if ($imagesNode instanceof \SimpleXMLElement) {
+            foreach ($imagesNode->children() as $img) {
+                $u = trim((string)$img);
+                if ($this->isUrl($u)) $out[] = $u;
+            }
+        }
+
+        // tekilleştir
+        $out = array_values(array_unique($out));
+        return $out;
+    }
+
+    protected function isUrl(string $s): bool
+    {
+        if ($s === '') return false;
+        // bazı feed’lerde http(s) zorunlu
+        return (bool)filter_var($s, FILTER_VALIDATE_URL);
+    }
+
+    /** Basit HTML normalize (paragrafları koru) */
+    protected function normalizeDescription(?string $html): ?string
+    {
+        if ($html === null || trim($html) === '') return null;
+
+        // Yaygın kötü karakterleri sadeleştir
+        $clean = preg_replace("/\r\n|\r|\n/", "\n", $html);
+        // Çift noktalı liste ayırıcıları vs. kalsın; gereksiz boşlukları azalt
+        $clean = preg_replace('/[ \t]+/', ' ', $clean);
+        $clean = trim($clean);
+
+        return $clean;
     }
 }
