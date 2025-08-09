@@ -14,3 +14,7 @@ Route::get('/health', function () {
         'time' => now()->toISOString(),
     ]);
 });
+
+use App\Http\Controllers\FeedController;
+
+Route::get('/feed/satis.xml', [FeedController::class, 'feed']);
