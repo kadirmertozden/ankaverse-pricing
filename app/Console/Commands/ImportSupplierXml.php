@@ -91,6 +91,8 @@ class ImportSupplierXml extends Command
                     'gtin'              => $str($p->Gtin),
                     'images'            => $images ? json_encode($images) : null,
                     'description'       => $str($p->Description),
+					'commission_rate'  => 0, // TODO: Hepsiburada kategori eşleşmesi ile doldurulacak
+
                 ]
             );
 
