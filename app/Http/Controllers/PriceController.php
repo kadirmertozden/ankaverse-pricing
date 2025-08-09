@@ -1,18 +1,19 @@
 <?php
 
 namespace App\Http\Controllers;
-
+use App\Models\Product; // dosyanın başına ekle
 use Illuminate\Http\Request;
 
 class PriceController extends Controller
 {
-    public function products()
-    {
-        return response()->json([
-            ['stockCode' => 'P11743S4450', 'name' => 'Ürün 1', 'price' => 100],
-            ['stockCode' => 'P11856S4460', 'name' => 'Ürün 2', 'price' => 150],
-        ]);
-    }
+
+
+public function products()
+{
+    return response()->json(
+        Product::query()->orderByDesc('id')->limit(50)->get()
+    );
+}
 
     public function compute(Request $request)
     {
