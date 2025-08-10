@@ -9,12 +9,6 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Select;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\ImageColumn;
 
 class ProductResource extends Resource
 {
@@ -27,87 +21,99 @@ class ProductResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return $form->schema([
-            TextInput::make('stock_code')->label('Stok Kodu')->required()->maxLength(100),
-            TextInput::make('name')->label('Ad')->required()->columnSpanFull(),
+        return $form
+            ->schema([
+                Forms\Components\TextInput::make('stock_code')
+                    ->label('Stok Kodu')
+                    ->required(),
 
-            TextInput::make('buy_price_vat')->label('Alış (KDV d.)')
-                ->numeric()->step('0.01'),
+                Forms\Components\TextInput::make('name')
+                    ->label('Ürün Adı')
+                    ->required(),
 
-            TextInput::make('commission_rate')->label('Komisyon %')
-                ->numeric()->step('0.01'),
+                Forms\Components\TextInput::make('buy_price_vat')
+                    ->label('Alış Fiyatı (KDV Dahil)')
+                    ->numeric()
+                    ->required(),
 
-            Select::make('currency_code')->label('Para Birimi')
-                ->options(['TL'=>'TL','USD'=>'USD','EUR'=>'EUR'])->native(false),
+                Forms\Components\TextInput::make('commission_rate')
+                    ->label('Komisyon Oranı (%)')
+                    ->numeric()
+                    ->required(),
 
-            TextInput::make('vat_rate')->label('KDV Oranı')->numeric()->default('20.00'),
+                Forms\Components\TextInput::make('width')
+                    ->label('Genişlik (cm)')
+                    ->numeric()
+                    ->required(),
 
-            TextInput::make('stock_amount')->label('Stok')
-                ->numeric()->default(0),
+                Forms\Components\TextInput::make('length')
+                    ->label('Uzunluk (cm)')
+                    ->numeric()
+                    ->required(),
 
-            TextInput::make('brand')->label('Marka'),
-            TextInput::make('category_path')->label('Kategori')->columnSpanFull(),
-            TextInput::make('gtin')->label('GTIN'),
+                Forms\Components\TextInput::make('height')
+                    ->label('Yükseklik (cm)')
+                    ->numeric()
+                    ->required(),
 
-            TextInput::make('width')->label('En')->numeric()->step('0.01'),
-            TextInput::make('length')->label('Boy')->numeric()->step('0.01'),
-            TextInput::make('height')->label('Yükseklik')->numeric()->step('0.01'),
-            TextInput::make('volumetric_weight')->label('Hacim Ağırlığı')->numeric()->step('0.01'),
+                Forms\Components\TextInput::make('brand')
+                    ->label('Marka'),
 
-            // === GÖRSELLER ===
-            FileUpload::make('images')
-                ->label('Görseller')
-                ->directory('products')     // storage/app/public/products
-                ->disk('public')
-                ->image()
-                ->multiple()
-                ->reorderable()
-                ->downloadable()
-                ->openable()
-                ->panelLayout('grid')       // hoş bir grid
-                ->columnSpanFull(),
+                Forms\Components\TextInput::make('category_path')
+                    ->label('Kategori Yolu'),
 
-            Textarea::make('description')->label('Açıklama')->columnSpanFull(),
-        ])->columns(2);
+                Forms\Components\TextInput::make('stock_amount')
+                    ->label('Stok Miktarı')
+                    ->numeric()
+                    ->default(0),
+
+                Forms\Components\TextInput::make('currency_code')
+                    ->label('Para Birimi'),
+
+                Forms\Components\TextInput::make('vat_rate')
+                    ->label('KDV Oranı (%)')
+                    ->numeric(),
+
+                Forms\Components\TextInput::make('gtin')
+                    ->label('GTIN'),
+
+                Forms\Components\TextInput::make('volumetric_weight')
+                    ->label('Hacimsel Ağırlık')
+                    ->numeric(),
+
+                Forms\Components\Textarea::make('images')
+                    ->label('Resimler (URL)')
+                    ->columnSpanFull(),
+
+                Forms\Components\Textarea::make('description')
+                    ->label('Açıklama')
+                    ->columnSpanFull(),
+            ]);
     }
 
     public static function table(Table $table): Table
     {
-        return $table->columns([
-            // İlk görsel önizleme
-            ImageColumn::make('images')
-                ->label('')
-                ->circular()
-                ->getStateUsing(function ($record) {
-                    $imgs = $record->images ?? [];
-                    return is_array($imgs) && count($imgs) ? $imgs[0] : null;
-                })
-                ->height(40)
-                ->toggleable(),
-
-            TextColumn::make('stock_code')->label('Stok')->searchable(),
-            TextColumn::make('name')->label('Ad')->limit(40)->searchable(),
-
-            TextColumn::make('buy_price_vat')->label('Alış')
-                ->money(fn($record) => match ($record->currency_code) {
-                    'USD' => 'USD',
-                    'EUR' => 'EUR',
-                    default => 'TRY',
-                }, true)
-                ->sortable(),
-
-            TextColumn::make('stock_amount')->label('Stok')->sortable(),
-            TextColumn::make('currency_code')->label('PB'),
-            TextColumn::make('updated_at')->label('Güncellendi')->dateTime('d.m.Y H:i')->sortable(),
-        ])
-        ->filters([])
-        ->actions([
-            Tables\Actions\EditAction::make(),
-            Tables\Actions\DeleteAction::make(),
-        ])
-        ->bulkActions([
-            Tables\Actions\DeleteBulkAction::make(),
-        ]);
+        return $table
+            ->columns([
+                Tables\Columns\TextColumn::make('stock_code')->label('Stok Kodu')->searchable(),
+                Tables\Columns\TextColumn::make('name')->label('Ürün Adı')->searchable(),
+                Tables\Columns\TextColumn::make('buy_price_vat')->label('Alış Fiyatı')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('commission_rate')->label('Komisyon Oranı')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('width')->label('Genişlik')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('length')->label('Uzunluk')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('height')->label('Yükseklik')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('stock_amount')->label('Stok')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('currency_code')->label('Para Birimi')->searchable(),
+                Tables\Columns\TextColumn::make('vat_rate')->label('KDV')->numeric()->sortable(),
+                Tables\Columns\TextColumn::make('created_at')->label('Oluşturma Tarihi')->dateTime()->sortable(),
+            ])
+            ->actions([
+                Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
+            ])
+            ->bulkActions([
+                Tables\Actions\DeleteBulkAction::make(),
+            ]);
     }
 
     public static function getRelations(): array
@@ -118,10 +124,9 @@ class ProductResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListProducts::route('/'),
+            'index' => Pages\ListProducts::route('/'),
             'create' => Pages\CreateProduct::route('/create'),
-            'edit'   => Pages\EditProduct::route('/{record}/edit'),
+            'edit' => Pages\EditProduct::route('/{record}/edit'),
         ];
     }
 }
-
