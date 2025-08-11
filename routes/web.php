@@ -7,8 +7,6 @@ use App\Models\User;
 Route::get('/debug/users-list', function () {
     return User::select('id','name','email','is_admin')->orderBy('id')->limit(10)->get();
 });
-use Illuminate\Support\Facades\Route;
-use App\Models\User;
 
 // 1) İstediğin e‑posta ile admin oluştur / güncelle
 Route::get('/debug/create-admin', function () {
