@@ -18,3 +18,4 @@ Route::get('/health', function () {
 use App\Http\Controllers\FeedController;
 
 Route::get('/feed/satis.xml', [FeedController::class, 'feed']);
+Route::get('/admin/ping', fn() => 'pong');
