@@ -24,7 +24,7 @@ class KadirmertozdenPanelProvider extends PanelProvider
     {
         return $panel
     ->id('kadirmertozden')
-    ->path('kadirmertozden')
+    ->path('admin')
     ->login() // <<< LOGIN rotalarını ekler
     ->colors([
         'primary' => Color::Amber,
