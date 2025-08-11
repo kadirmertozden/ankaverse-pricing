@@ -23,11 +23,8 @@ class KadirmertozdenPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
-            ->default()
             ->id('kadirmertozden')
             ->path('kadirmertozden')
-            ->login()            // <<< Filament'in kendi login rotalarını aktif et
-            ->authGuard('web')  // (opsiyonel) varsayılan guard
             ->colors([
                 'primary' => Color::Amber,
             ])

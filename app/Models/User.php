@@ -2,23 +2,28 @@
 
 namespace App\Models;
 
-use Filament\Panel;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Filament\Models\Contracts\FilamentUser;
-// (gerekirse) use Illuminate\Notifications\Notifiable;
+use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable
 {
-    // use Notifiable; // varsa kalsın
+    use HasFactory, Notifiable;
 
-    public function canAccessPanel(Panel $panel): bool
-    {
-        // Şimdilik tüm giriş yapmış kullanıcılar panele girebilsin:
-        return true;
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'is_admin',
+    ];
 
-        // İlerde rol/e-posta kontrolü yapacaksan:
-        // return $this->is_admin === 1;
-        // veya
-        // return in_array($this->email, ['seninmail@...']);
-    }
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'is_admin' => 'boolean',
+    ];
 }
