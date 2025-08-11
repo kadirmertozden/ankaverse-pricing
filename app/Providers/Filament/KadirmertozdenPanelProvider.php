@@ -23,34 +23,37 @@ class KadirmertozdenPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
-            ->id('kadirmertozden')
-            ->path('kadirmertozden')
-            ->colors([
-                'primary' => Color::Amber,
-            ])
-            ->discoverResources(in: app_path('Filament/Kadirmertozden/Resources'), for: 'App\\Filament\\Kadirmertozden\\Resources')
-            ->discoverPages(in: app_path('Filament/Kadirmertozden/Pages'), for: 'App\\Filament\\Kadirmertozden\\Pages')
-            ->pages([
-                Pages\Dashboard::class,
-            ])
-            ->discoverWidgets(in: app_path('Filament/Kadirmertozden/Widgets'), for: 'App\\Filament\\Kadirmertozden\\Widgets')
-            ->widgets([
-                Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
-            ])
-            ->middleware([
-                EncryptCookies::class,
-                AddQueuedCookiesToResponse::class,
-                StartSession::class,
-                AuthenticateSession::class,
-                ShareErrorsFromSession::class,
-                VerifyCsrfToken::class,
-                SubstituteBindings::class,
-                DisableBladeIconComponents::class,
-                DispatchServingFilamentEvent::class,
-            ])
-            ->authMiddleware([
-                Authenticate::class,
-            ]);
+    ->id('kadirmertozden')
+    ->path('kadirmertozden')
+    ->login() // <<< LOGIN rotalarını ekler
+    ->colors([
+        'primary' => Color::Amber,
+    ])
+    ->discoverResources(in: app_path('Filament/Kadirmertozden/Resources'), for: 'App\\Filament\\Kadirmertozden\\Resources')
+    ->discoverPages(in: app_path('Filament/Kadirmertozden/Pages'), for: 'App\\Filament\\Kadirmertozden\\Pages')
+    ->pages([
+        Pages\Dashboard::class,
+    ])
+    ->discoverWidgets(in: app_path('Filament/Kadirmertozden/Widgets'), for: 'App\\Filament\\Kadirmertozden\\Widgets')
+    ->widgets([
+        Widgets\AccountWidget::class,
+        Widgets\FilamentInfoWidget::class,
+    ])
+    ->middleware([
+        EncryptCookies::class,
+        AddQueuedCookiesToResponse::class,
+        StartSession::class,
+        // Burada Filament'in kendi AuthenticateSession'ını kullanıyorsun, sorun değil.
+        AuthenticateSession::class,
+        ShareErrorsFromSession::class,
+        VerifyCsrfToken::class,
+        SubstituteBindings::class,
+        DisableBladeIconComponents::class,
+        DispatchServingFilamentEvent::class,
+    ])
+    ->authMiddleware([
+        Authenticate::class,
+    ]);
+
     }
 }
