@@ -7,15 +7,20 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        // ZATEN VARSA OLUŞTURMA
+        if (Schema::hasTable('pricing_profiles')) {
+            return;
+        }
+
         Schema::create('pricing_profiles', function (Blueprint $table) {
             $table->id();
-            $table->string('name');                       // Örn: "Yenitoptanci varsayılan"
-            $table->foreignId('supplier_id')->nullable()->constrained()->nullOnDelete();
-            $table->decimal('min_margin', 5, 2)->default(0);        // % kâr
-            $table->decimal('commission_percent', 5, 2)->default(0);// % komisyon
-            $table->decimal('vat_percent', 5, 2)->default(20);      // % KDV
-            $table->string('currency', 8)->default('TRY');          // TRY, USD, EUR...
-            $table->decimal('rounding', 5, 2)->nullable();          // Örn: 0.99
+            $table->string('name');
+            $table->unsignedBigInteger('supplier_id')->nullable();
+            $table->decimal('min_margin', 5, 2)->default(0);
+            $table->decimal('commission_percent', 5, 2)->default(0);
+            $table->decimal('vat_percent', 5, 2)->default(20);
+            $table->string('currency', 8)->default('TRY');
+            $table->decimal('rounding', 5, 2)->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
@@ -23,6 +28,9 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('pricing_profiles');
+        // DROP öncesi kontrol
+        if (Schema::hasTable('pricing_profiles')) {
+            Schema::dropIfExists('pricing_profiles');
+        }
     }
 };
