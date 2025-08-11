@@ -9,18 +9,26 @@ use Illuminate\Support\Facades\Storage;
 
 class ImportSupplierXml extends Command
 {
-    protected $signature = 'import:supplier
-        {--url= : XML feed URL\'i (örn: https://yenitoptanci.com/xxxx)}
-        {--file= : Yerel XML yolu (örn: storage/app/private/supplier.xml)}
-        {--chunk=500 : Kaç üründe bir toplu upsert yapılsın}';
+    // ARGÜMAN + OPSİYONLAR
+    protected $signature = 'import:supplier 
+        {supplier_code : suppliers.code (örn: yenitoptanci)} 
+        {--feed_id= : supplier_feeds.id (opsiyonel)} 
+        {--url= : XML feed URL (override)} 
+        {--file= : Yerel XML yolu (örn: storage/app/private/supplier.xml)} 
+        {--chunk=500 : Kaç üründe bir toplu upsert yapılsın} 
+        {--full : Tüm kayıtları yeniden değerlendir}';
 
-    protected $description = 'Tedarikçi XML ürünlerini bellek dostu şekilde içe aktarır / günceller.';
+    protected $description = 'Tedarikçi XML ürünlerini (stream) supplier_products tablosuna içe aktarır / günceller.';
 
-    /** Kaynak XML dosyasını indirin/yerelleyin ve tam dosya yolunu döndürün */
+    protected int $supplierId;
+    protected ?int $feedId = null;
+
+    /** Kaynak XML dosyasını indir/yerelle ve tam dosya yolunu döndür */
     protected function resolveSourcePath(): string
     {
         $dst = Storage::path('private/supplier.xml');
 
+        // 1) --url ile override
         if ($url = $this->option('url')) {
             $this->info('XML indiriliyor: '.$url);
             $res = Http::timeout(180)->withHeaders([
@@ -28,7 +36,7 @@ class ImportSupplierXml extends Command
                 'Accept'     => 'application/xml,text/xml,*/*',
             ])->get($url);
 
-            if (!$res->ok()) {
+            if (! $res->ok()) {
                 throw new \RuntimeException("URL indirilemedi. HTTP ".$res->status());
             }
             Storage::put('private/supplier.xml', $res->body());
@@ -36,8 +44,59 @@ class ImportSupplierXml extends Command
             return $dst;
         }
 
+        // 2) --feed_id verilmişse DB’den URL çek
+        if ($this->feedId) {
+            $feed = DB::table('supplier_feeds')
+                ->where('id', $this->feedId)
+                ->where('supplier_id', $this->supplierId)
+                ->first();
+
+            if (! $feed) {
+                throw new \InvalidArgumentException("feed_id={$this->feedId} bu tedarikçide bulunamadı.");
+            }
+            if (! $feed->url) {
+                throw new \InvalidArgumentException("feed_id={$this->feedId} için URL boş.");
+            }
+
+            $this->info('XML indiriliyor (feed_id='.$this->feedId.'): '.$feed->url);
+            $res = Http::timeout(180)->withHeaders([
+                'User-Agent' => 'LaravelImporter/1.0',
+                'Accept'     => 'application/xml,text/xml,*/*',
+            ])->get($feed->url);
+
+            if (! $res->ok()) {
+                throw new \RuntimeException("Feed URL indirilemedi. HTTP ".$res->status());
+            }
+            Storage::put('private/supplier.xml', $res->body());
+            $this->line('Kaydedildi: '.$dst);
+            return $dst;
+        }
+
+        // 3) supplier’ın ilk aktif feed’i (fallback)
+        $feed = DB::table('supplier_feeds')
+            ->where('supplier_id', $this->supplierId)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+
+        if ($feed && $feed->url) {
+            $this->info('XML indiriliyor (aktif feed): '.$feed->url);
+            $res = Http::timeout(180)->withHeaders([
+                'User-Agent' => 'LaravelImporter/1.0',
+                'Accept'     => 'application/xml,text/xml,*/*',
+            ])->get($feed->url);
+
+            if (! $res->ok()) {
+                throw new \RuntimeException("Aktif feed URL indirilemedi. HTTP ".$res->status());
+            }
+            Storage::put('private/supplier.xml', $res->body());
+            $this->line('Kaydedildi: '.$dst);
+            return $dst;
+        }
+
+        // 4) --file ile yerel yol
         if ($file = $this->option('file')) {
-            if (!is_file($file)) {
+            if (! is_file($file)) {
                 throw new \InvalidArgumentException("Yerel dosya bulunamadı: $file");
             }
             Storage::put('private/supplier.xml', file_get_contents($file));
@@ -45,9 +104,9 @@ class ImportSupplierXml extends Command
             return $dst;
         }
 
-        // Varsayılan: daha önce kaydedilmiş dosya
-        if (!is_file($dst)) {
-            throw new \InvalidArgumentException("Kaynak yok. --url veya --file verin ya da $dst oluşturun.");
+        // 5) Daha önce indirilen dosya varsa onu kullan
+        if (! is_file($dst)) {
+            throw new \InvalidArgumentException("Kaynak yok. --url / --feed_id / --file verin ya da $dst oluşturun.");
         }
 
         return $dst;
@@ -57,36 +116,56 @@ class ImportSupplierXml extends Command
     {
         libxml_use_internal_errors(true);
 
+        // supplier_code → supplier_id
+        $supplierCode = (string) $this->argument('supplier_code');
+        $supplier = DB::table('suppliers')->where('code', $supplierCode)->first();
+        if (! $supplier) {
+            $this->error("Tedarikçi bulunamadı: {$supplierCode} (suppliers.code)");
+            return self::FAILURE;
+        }
+        $this->supplierId = (int) $supplier->id;
+        $this->feedId = $this->option('feed_id') ? (int) $this->option('feed_id') : null;
+
+        // import kaydı (opsiyonel)
+        $importId = DB::table('imports')->insertGetId([
+            'supplier_id' => $this->supplierId,
+            'supplier_feed_id' => $this->feedId,
+            'status' => 'running',
+            'started_at' => now(),
+            'created_by' => auth()->id() ?? null, // console’da null olur
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         try {
             $path  = $this->resolveSourcePath();
-            $chunk = max(1, (int)$this->option('chunk'));
+            $chunk = max(1, (int) $this->option('chunk'));
         } catch (\Throwable $e) {
+            $this->failImport($importId, $e->getMessage());
             $this->error($e->getMessage());
             return self::FAILURE;
         }
 
         $xr = new \XMLReader();
-        if (!$xr->open($path, null, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_COMPACT)) {
+        if (! $xr->open($path, null, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_COMPACT)) {
+            $this->failImport($importId, 'XML açılamadı: '.$path);
             $this->error('XML açılamadı: '.$path);
             return self::FAILURE;
         }
 
         $total = 0;
         $batch = [];
-
-        $this->info('İçe aktarma başladı…');
+        $this->info("İçe aktarma başladı… (supplier: {$supplierCode})");
 
         while ($xr->read()) {
             if ($xr->nodeType !== \XMLReader::ELEMENT) {
                 continue;
             }
-
-            // <Product> veya <product>
+            // <Product> / <product>
             if (strcasecmp($xr->name, 'Product') !== 0) {
                 continue;
             }
 
-            // Bu node’u tek başına SimpleXMLElement’e dönüştür
             $xmlString = $xr->readOuterXML();
             if ($xmlString === '' || $xmlString === false) {
                 continue;
@@ -95,21 +174,19 @@ class ImportSupplierXml extends Command
             try {
                 $node = new \SimpleXMLElement($xmlString);
             } catch (\Throwable $e) {
-                // Bozuk node’u atla
-                continue;
+                continue; // bozuk node
             }
 
             $row = $this->mapProduct($node);
-
             if ($row === null) {
-                // zorunlu alanlardan biri yoksa atla
-                continue;
+                continue; // zorunlu alan eksik
             }
 
+            // supplier_id ekle
+            $row['supplier_id'] = $this->supplierId;
             $batch[] = $row;
             $total++;
 
-            // CHUNK dolduysa yaz
             if (count($batch) >= $chunk) {
                 $this->upsertBatch($batch);
                 $this->line("↳ yazıldı: +".count($batch));
@@ -117,26 +194,26 @@ class ImportSupplierXml extends Command
             }
         }
 
-        // kalanlar
-        if (!empty($batch)) {
+        if (! empty($batch)) {
             $this->upsertBatch($batch);
             $this->line("↳ yazıldı: +".count($batch));
         }
 
         $xr->close();
 
+        $this->successImport($importId);
         $this->info("Bitti. Toplam: {$total}");
         return self::SUCCESS;
     }
 
-    /** XML Product node -> DB row */
+    /** XML Product node -> supplier_products satırı */
     protected function mapProduct(\SimpleXMLElement $p): ?array
     {
-        // feed’de gördüğümüz alan adları
+        // feed alanları (gerekirse uyarlarsın)
         $stockCode   = $this->txt($p->ProductCode ?? null);
         $productName = $this->txt($p->ProductName ?? null);
 
-        if (!$stockCode || !$productName) {
+        if (! $stockCode || ! $productName) {
             return null;
         }
 
@@ -147,148 +224,141 @@ class ImportSupplierXml extends Command
         $qty         = $this->int($p->Quantity ?? null);
         $tax         = $this->txt($p->TaxRate ?? null);
         $volume      = $this->txt($p->Volume ?? null);
-        $gtin        = $this->txt($p->Gtin ?? null); // varsa
+        $gtin        = $this->txt($p->Gtin ?? null);
+        $images      = $this->collectImages($p->Images ?? null);
 
-        // Görselleri toparla (hem düz metin hem alt tag’ler)
-        $images = $this->collectImages($p->Images ?? null);
-
-        // Açıklama HTML normalize
         $description = $this->normalizeDescription($descRaw);
-
-        // Sütun eşleşmeleri – projendeki kolonlara göre uyarlayabilirsin
         $now = now();
 
+        // supplier_products şeması:
         return [
-            // Upsert eşsiz anahtar: stock_code
             'stock_code'        => $stockCode,
             'name'              => $productName,
-            'brand'             => null, // feed vermiyor
-            'category_path'     => $category ?: null,
-            'stock_amount'      => $qty,
-            'currency_code'     => $currency ?: null,
+            'buy_price_vat'     => $price1 !== null ? number_format($price1, 2, '.', '') : '0.00',
             'vat_rate'          => $tax ?: null,
-            'gtin'              => $gtin ?: null,
+            'commission_rate'   => 0,
+            'currency'          => $currency ?: 'TRY',
+            'stock_amount'      => $qty,
+            'category_path'     => $category ?: null,
             'images'            => $images ? json_encode($images, JSON_UNESCAPED_SLASHES) : null,
             'description'       => $description,
-            'buy_price_vat'     => $price1 !== null ? number_format($price1, 2, '.', '') : '0.00',
-            'commission_rate'   => 0,
-            'width'             => '0.00',
-            'length'            => '0.00',
-            'height'            => '0.00',
-            'volumetric_weight' => $volume ?: null,
+            'dims'              => json_encode([
+                                        'width'  => '0.00',
+                                        'length' => '0.00',
+                                        'height' => '0.00',
+                                        'volumetric_weight' => $volume ?: null,
+                                    ], JSON_UNESCAPED_SLASHES),
+            'raw'               => json_encode($this->simpleXmlToArray($p), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'last_seen_at'      => $now,
+            'is_active'         => true,
             'updated_at'        => $now,
-            'created_at'        => $now, // upsert created_at’ı korur/ayarlar
+            'created_at'        => $now,
         ];
     }
 
-    /** Toplu upsert – Laravel 8+ */
+    /** Toplu upsert → supplier_products (unique: supplier_id + stock_code) */
     protected function upsertBatch(array $rows): void
     {
-        // products tablosunda stock_code unique olmalı
-        DB::table('products')->upsert(
+        DB::table('supplier_products')->upsert(
             $rows,
-            ['stock_code'], // conflict key
+            ['supplier_id', 'stock_code'], // conflict
             [
-                'name','brand','category_path','stock_amount','currency_code','vat_rate','gtin',
-                'images','description','buy_price_vat','commission_rate','width','length','height',
-                'volumetric_weight','updated_at'
+                'name','buy_price_vat','vat_rate','commission_rate','currency',
+                'stock_amount','category_path','images','description','dims',
+                'raw','last_seen_at','is_active','updated_at'
             ]
         );
     }
 
-    /** Metin çıkar (trim), istersen HTML’e izin ver */
+    /** Yardımcılar */
     protected function txt($val, bool $allowHtml = false): ?string
     {
         if ($val === null) return null;
-        $s = (string)$val;
-
+        $s = (string) $val;
         if ($s === '') return null;
-
-        if ($allowHtml) {
-            // CDATA vb. kalsın, ama baş/son boşluk temizle
-            return trim($s);
-        }
-        // düz metin
-        return trim(strip_tags($s));
+        return $allowHtml ? trim($s) : trim(strip_tags($s));
     }
 
-    /** Tam sayı */
     protected function int($val): int
     {
         $s = $this->txt($val) ?? '0';
-        return (int)preg_replace('/[^\d\-]/', '', $s);
+        return (int) preg_replace('/[^\d\-]/', '', $s);
     }
 
-    /** Ondalık sayı */
     protected function num($val): ?float
     {
         $s = $this->txt($val);
         if ($s === null) return null;
 
-        // 1.234,56 veya 1,234.56 gibi yazımlar olabilir
         $s = str_replace([' ', "\u{00A0}"], '', $s);
-        // virgül ondalıksa düzelt
         if (preg_match('/^\d{1,3}(\.\d{3})+,\d+$/', $s)) {
             $s = str_replace('.', '', $s);
             $s = str_replace(',', '.', $s);
         } elseif (preg_match('/^\d+,\d+$/', $s)) {
             $s = str_replace(',', '.', $s);
         } else {
-            // binlik ayraçları kaldır
             $s = preg_replace('/(?<=\d)[,](?=\d{3}(\D|$))/', '', $s);
         }
 
-        if (!is_numeric($s)) return null;
-        return (float)$s;
+        if (! is_numeric($s)) return null;
+        return (float) $s;
     }
 
-    /** Images alanını çok biçimli yakala */
     protected function collectImages($imagesNode): array
     {
         $out = [];
-
         if ($imagesNode === null) return $out;
 
-        // <Images> düz metin ise: virgül/; ile ayrılmış olabilir
-        $raw = (string)$imagesNode;
+        $raw = (string) $imagesNode;
         if ($raw !== '' && strip_tags($raw) === $raw) {
             foreach (preg_split('/[;,]/', $raw) as $u) {
                 $u = trim($u);
                 if ($this->isUrl($u)) $out[] = $u;
             }
         }
-
-        // Alt elemanlar varsa (<Image1>..</Image1>)
         if ($imagesNode instanceof \SimpleXMLElement) {
             foreach ($imagesNode->children() as $img) {
-                $u = trim((string)$img);
+                $u = trim((string) $img);
                 if ($this->isUrl($u)) $out[] = $u;
             }
         }
-
-        // tekilleştir
-        $out = array_values(array_unique($out));
-        return $out;
+        return array_values(array_unique($out));
     }
 
     protected function isUrl(string $s): bool
     {
-        if ($s === '') return false;
-        // bazı feed’lerde http(s) zorunlu
-        return (bool)filter_var($s, FILTER_VALIDATE_URL);
+        return $s !== '' && (bool) filter_var($s, FILTER_VALIDATE_URL);
     }
 
-    /** Basit HTML normalize (paragrafları koru) */
     protected function normalizeDescription(?string $html): ?string
     {
         if ($html === null || trim($html) === '') return null;
-
-        // Yaygın kötü karakterleri sadeleştir
         $clean = preg_replace("/\r\n|\r|\n/", "\n", $html);
-        // Çift noktalı liste ayırıcıları vs. kalsın; gereksiz boşlukları azalt
         $clean = preg_replace('/[ \t]+/', ' ', $clean);
-        $clean = trim($clean);
+        return trim($clean);
+    }
 
-        return $clean;
+    protected function simpleXmlToArray(\SimpleXMLElement $xml): array
+    {
+        return json_decode(json_encode($xml, JSON_UNESCAPED_UNICODE), true) ?? [];
+    }
+
+    protected function failImport(int $importId, string $err): void
+    {
+        DB::table('imports')->where('id', $importId)->update([
+            'status' => 'failed',
+            'error' => $err,
+            'finished_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function successImport(int $importId): void
+    {
+        DB::table('imports')->where('id', $importId)->update([
+            'status' => 'done',
+            'finished_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }
