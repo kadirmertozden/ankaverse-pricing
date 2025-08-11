@@ -13,4 +13,9 @@ class Product extends Model
         'stock_code', 'name', 'buy_price_vat', 'commission_rate',
         'width', 'length', 'height'
     ];
+	protected $casts = [
+    'dims'    => 'array',
+    'images'  => 'array',
+    'is_active' => 'boolean',
+];
 }
