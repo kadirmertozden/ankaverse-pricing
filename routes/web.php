@@ -1,8 +1,12 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-// routes/web.php
 use Illuminate\Support\Facades\DB;
+use App\Models\User;
+
+Route::get('/debug/users-list', function () {
+    return User::select('id','name','email','is_admin')->orderBy('id')->limit(10)->get();
+});
 
 Route::get('/debug/users-count', function () {
     return DB::table('users')->count();
