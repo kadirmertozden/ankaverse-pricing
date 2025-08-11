@@ -7,6 +7,17 @@ use App\Models\User;
 Route::get('/debug/users-list', function () {
     return User::select('id','name','email','is_admin')->orderBy('id')->limit(10)->get();
 });
+Route::get('/debug/create-admin', function () {
+    $u = \App\Models\User::updateOrCreate(
+        ['email' => 'kadirmertozden@ankaverse.com.tr'],
+        [
+            'name' => 'Kadir Mert Özden',
+            'password' => bcrypt('Discovery96.'),
+            'is_admin' => true,
+        ]
+    );
+    return $u ? 'ok: '.$u->id : 'failed';
+});
 
 Route::get('/debug/users-count', function () {
     return DB::table('users')->count();
