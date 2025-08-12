@@ -1,29 +1,21 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Controller;
 use App\Models\ExportRun;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 
-class ExportRunDownloadController extends Controller
+class ExportDownloadController extends Controller
 {
-    public function download(ExportRun $exportRun)
+    public function download(ExportRun $run)
     {
-        // Basit yetki kontrolü (gerekirse genişlet)
-        if (!auth()->check()) {
-            abort(403);
-        }
+        abort_unless($run->path && Storage::disk('local')->exists($run->path), 404);
 
-        if (!$exportRun->path || !Storage::exists($exportRun->path)) {
-            abort(404, 'XML dosyası bulunamadı.');
-        }
-
-        $filename = basename($exportRun->path);
-        return response()->streamDownload(function () use ($exportRun) {
-            echo Storage::get($exportRun->path);
-        }, $filename, [
-            'Content-Type' => 'application/xml',
+        return response()->streamDownload(function () use ($run) {
+            echo Storage::disk('local')->get($run->path);
+        }, 'export-'.$run->id.'.xml', [
+            'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
     }
 }

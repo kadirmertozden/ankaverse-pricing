@@ -49,12 +49,13 @@ class ExportRunResource extends Resource
 
             Forms\Components\Fieldset::make('XML Yükle')->schema([
                 Forms\Components\FileUpload::make('path')
-                    ->label('XML Dosyası')
-                    ->directory(fn (callable $get) => 'exports/' . $get('export_profile_id') . '/manual')
-                    ->visibility('private')
-                    ->acceptedFileTypes(['application/xml', 'text/xml'])
-                    ->helperText('Alternatif: Aşağıya XML içeriğini yapıştırabilirsin.')
-                    ->maxSize(2048), // KB
+    ->label('XML Dosyası')
+    ->disk('local') // <— ÖNEMLİ: dosya nereye yazılacak
+    ->directory(fn ($get) => 'exports/'.$get('export_profile_id').'/manual')
+    ->visibility('private')
+    ->acceptedFileTypes(['application/xml','text/xml'])
+    ->helperText('Alternatif: Aşağıya XML içeriğini yapıştırabilirsin.')
+    ->maxSize(2048), // KB
             ])->columns(1),
 
             Forms\Components\Fieldset::make('XML Yapıştır')->schema([
