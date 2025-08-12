@@ -19,13 +19,15 @@ class ListProducts extends ListRecords
     {
         return [
             Action::make('priceBuild')
-                ->label('Tümünü Fiyatla (Profil #1)')
+                ->label('Tümünü Fiyatla (Profil #1 / Aktif)')
                 ->icon('heroicon-o-calculator')
                 ->requiresConfirmation()
                 ->action(function () {
                     try {
-                        // Profil id 1 yoksa aktif ilk profili bul
+                        // 1) Önce id=1 var mı?
                         $profileId = DB::table('pricing_profiles')->where('id', 1)->value('id');
+
+                        // 2) Yoksa ilk aktif profili al
                         if (!$profileId) {
                             $profileId = DB::table('pricing_profiles')
                                 ->where('is_active', 1)
@@ -33,6 +35,7 @@ class ListProducts extends ListRecords
                                 ->value('id');
                         }
 
+                        // 3) Hâlâ yoksa kullanıcıya bildir
                         if (!$profileId) {
                             Notification::make()
                                 ->title('Profil bulunamadı')
@@ -43,7 +46,8 @@ class ListProducts extends ListRecords
                         }
 
                         Artisan::call('price:build', ['--profile_id' => $profileId]);
-                        $out = trim(Artisan::output()) ?: 'Komut tamamlandı.';
+                        $out = trim(Artisan::output()) ?: "Komut tamamlandı. (Profil #{$profileId})";
+
                         Notification::make()
                             ->title('Fiyatlama bitti')
                             ->body($out)
