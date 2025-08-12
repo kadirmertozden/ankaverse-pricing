@@ -8,13 +8,15 @@ use App\Models\Product;
 use App\Services\Export\HepsiburadaXmlBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;  
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
 
+
 class GenerateExportXmlJob implements ShouldQueue
 {
-    use InteractsWithQueue, Queueable, SerializesModels;
+        use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(public int $profileId) {}
 

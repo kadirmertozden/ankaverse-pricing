@@ -8,10 +8,9 @@ use App\Http\Controllers\ExportFeedController;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 
 Route::middleware(['web', FilamentAuthenticate::class])
-    ->prefix('admin/logs')
-    ->name('admin.logs.')
+    ->prefix('admin/devlogs')                 // ← 'admin/logs' yerine
+    ->name('admin.devlogs.')                  // ← isim de değişti
     ->group(function () {
-        // 1) Log dosyalarını listele
         Route::get('/', function () {
             $dir = storage_path('logs');
             $files = collect(glob($dir.'/*.log'))
@@ -21,7 +20,6 @@ Route::middleware(['web', FilamentAuthenticate::class])
             return response()->json($files);
         })->name('index');
 
-        // 2) Belirli bir log dosyasını indir
         Route::get('/{file}', function (string $file) {
             abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $file), 404);
             $path = storage_path('logs/'.$file);
@@ -32,14 +30,12 @@ Route::middleware(['web', FilamentAuthenticate::class])
             ]);
         })->name('download');
 
-        // 3) Son N satırı düz metin olarak göster
         Route::get('/{file}/tail', function (string $file) {
             abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $file), 404);
             $path = storage_path('logs/'.$file);
             abort_unless(file_exists($path), 404, 'Log dosyası yok');
 
-            $lines = (int) request('lines', 200);
-            $lines = max(1, min($lines, 2000));
+            $lines = max(1, min((int) request('lines', 200), 2000));
             $content = implode(PHP_EOL, array_slice(file($path, FILE_IGNORE_NEW_LINES), -$lines));
 
             return response($content, 200, ['Content-Type' => 'text/plain; charset=UTF-8']);

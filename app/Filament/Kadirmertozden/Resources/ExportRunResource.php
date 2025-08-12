@@ -13,7 +13,6 @@ use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Filament\Notifications\Notification;
-use Filament\Tables\Actions\CopyAction;
 
 class ExportRunResource extends Resource
 {
@@ -100,11 +99,7 @@ return $table
             }),
 
         // Linki kopyala (aksiyon olarak)
-        CopyAction::make('copyLink')
-            ->label('Linki Kopyala')
-            ->icon('heroicon-o-clipboard')
-            ->visible(fn($r) => $r->is_public && $r->public_url)
-            ->copyable(fn($r) => $r->public_url),
+        
 
         // Linki aç
         Tables\Actions\Action::make('openLink')
