@@ -16,11 +16,21 @@ use Filament\Notifications\Notification;
 
 class ExportRunResource extends Resource
 {
+	
     protected static ?string $model = ExportRun::class;
     protected static ?string $navigationIcon = 'heroicon-o-document-arrow-down';
 
     public static function getNavigationGroup(): ?string { return 'Entegrasyon'; }
     public static function getNavigationSort(): ?int { return 12; }
+
+public static function getPages(): array
+{
+    return [
+        'index'  => Pages\ListExportRuns::route('/'),
+        'create' => Pages\CreateExportRun::route('/create'),
+        'edit'   => Pages\EditExportRun::route('/{record}/edit'),
+    ];
+}
 
     public static function form(Form $form): Form
     {
