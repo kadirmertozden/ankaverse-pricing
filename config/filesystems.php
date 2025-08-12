@@ -63,7 +63,7 @@ return [
     // 👇 exports DİSKİ BURADA OLMALI
 	'exports' => [
 		'driver' => 'local',
-		'root' => storage_path('app/private'), // <-- BURAYA AL
+		'root' => storage_path('app/private'),
 		'throw' => false,
 	],
 

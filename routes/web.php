@@ -23,10 +23,10 @@ Route::get('/exports/{folder}/{filename}', function ($folder, $filename) {
 Route::get('/exports/t/{token}', [ExportController::class, 'showByToken'])
     ->name('exports.show');
 
-// Nested path destekli: /exports/1/manual/manual-....xml ya da /exports/1/2025....xml
+// /exports/1/20250812_161733.xml
+// /exports/1/manual/manual-20250812-170641.xml
 Route::get('/exports/{folder}/{any}', [ExportController::class, 'showByPath'])
     ->where('any', '.*');
-	
 // GEÇİCİ! Sorun bitince sil.
 Route::get('/_debug/exports/{folder}/{any}', function ($folder, $any) {
     $path = "exports/{$folder}/{$any}";
