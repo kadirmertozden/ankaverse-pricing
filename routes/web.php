@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Http\Controllers\ExportRunDownloadController;
 use App\Http\Controllers\ExportFeedController;
-use Illuminate\Support\Facades\Route;
+
 
 Route::get('/admin/logs/laravel', function () {
     abort_unless(auth()->check(), 403);
