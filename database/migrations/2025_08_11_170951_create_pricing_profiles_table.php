@@ -7,9 +7,8 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        // ZATEN VARSA OLUŞTURMA
         if (Schema::hasTable('pricing_profiles')) {
-            return;
+            return; // tablo zaten varsa oluşturma
         }
 
         Schema::create('pricing_profiles', function (Blueprint $table) {
@@ -28,7 +27,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        // DROP öncesi kontrol
         if (Schema::hasTable('pricing_profiles')) {
             Schema::dropIfExists('pricing_profiles');
         }

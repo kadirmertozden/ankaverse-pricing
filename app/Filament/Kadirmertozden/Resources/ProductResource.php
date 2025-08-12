@@ -6,12 +6,15 @@ use App\Filament\Kadirmertozden\Resources\ProductResource\Pages;
 use App\Models\Product;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Table;
 use Filament\Tables\Actions\BulkAction;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class ProductResource extends Resource
 {
@@ -69,53 +72,77 @@ class ProductResource extends Resource
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),
 
-                // --- Seçilileri Fiyatla ---
+                // --- Seçilileri Fiyatla (güvenli) ---
                 BulkAction::make('repriceSelected')
                     ->label('Seçilileri Fiyatla')
-                    ->requiresConfirmation()
-                    ->action(function (Collection $records): void {
-                        // Varsayılan profil #1'den oku (bulunamazsa ürün alanlarına düş)
-                        $profile = DB::table('pricing_profiles')->where('id', 1)->first();
-
-                        $prof_minMargin = $profile?->min_margin ?? null;            // %
-                        $prof_comm      = $profile?->commission_percent ?? null;    // %
-                        $prof_vat       = $profile?->vat_percent ?? null;           // %
-                        $prof_round     = $profile?->rounding ?? null;              // örn: .99
-
-                        /** @var \App\Models\Product $product */
-                        foreach ($records as $product) {
-                            $cost = (float) ($product->buy_price_vat ?? 0);
-                            if ($cost <= 0) {
-                                continue;
-                            }
-
-                            // Ürün üzerinde varsa onları, yoksa profili kullan
-                            $commission = is_numeric($product->commission_rate) ? (float)$product->commission_rate
-                                         : (is_numeric($prof_comm) ? (float)$prof_comm : 10.0);
-
-                            $vat = is_numeric($product->vat_rate) ? (float)$product->vat_rate
-                                   : (is_numeric($prof_vat) ? (float)$prof_vat : 20.0);
-
-                            $minMargin = is_numeric($prof_minMargin) ? (float)$prof_minMargin : 25.0;
-                            $rounding  = is_numeric($prof_round) ? (float)$prof_round : null;
-
-                            $base     = $cost * (1 + $commission / 100);
-                            $withVat  = $base * (1 + $vat / 100);
-                            $withMrg  = $withVat * (1 + $minMargin / 100);
-                            $price    = $withMrg;
-
-                            if ($rounding !== null) {
-                                $floor = floor($price);
-                                $candidate = $floor + $rounding; // .99 gibi
-                                $price = ($candidate < $withMrg) ? ($floor + 1 + $rounding) : $candidate;
-                            }
-
-                            $product->sell_price = round($price, 2);
-                            $product->save();
-                        }
-                    })
                     ->icon('heroicon-o-banknotes')
-                    ->color('success'),
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->action(function ($records): void {
+                        try {
+                            // Koleksiyon/array normalize et
+                            if ($records instanceof EloquentCollection || $records instanceof Collection) {
+                                $records = $records->all();
+                            }
+                            if (! is_array($records)) {
+                                $records = [$records];
+                            }
+
+                            $profile = DB::table('pricing_profiles')->where('id', 1)->first();
+                            $prof_minMargin = (float)($profile?->min_margin ?? 25);
+                            $prof_comm      = (float)($profile?->commission_percent ?? 10);
+                            $prof_vat       = (float)($profile?->vat_percent ?? 20);
+                            $prof_round     = is_numeric($profile?->rounding) ? (float)$profile->rounding : null;
+
+                            $updated = 0;
+
+                            foreach ($records as $product) {
+                                $cost = (float) ($product->buy_price_vat ?? 0);
+                                if ($cost <= 0) {
+                                    continue;
+                                }
+
+                                $commission = is_numeric($product->commission_rate)
+                                    ? (float)$product->commission_rate
+                                    : $prof_comm;
+
+                                $vat = is_numeric($product->vat_rate)
+                                    ? (float)$product->vat_rate
+                                    : $prof_vat;
+
+                                $minMargin = $prof_minMargin;
+                                $rounding  = $prof_round;
+
+                                $base    = $cost * (1 + $commission / 100);
+                                $withVat = $base * (1 + $vat / 100);
+                                $withMrg = $withVat * (1 + $minMargin / 100);
+                                $price   = $withMrg;
+
+                                if ($rounding !== null) {
+                                    $floor     = floor($price);
+                                    $candidate = $floor + $rounding; // .99 gibi
+                                    $price     = ($candidate < $withMrg) ? ($floor + 1 + $rounding) : $candidate;
+                                }
+
+                                $product->sell_price = round($price, 2);
+                                $product->save();
+                                $updated++;
+                            }
+
+                            Notification::make()
+                                ->title('Fiyatlama tamam')
+                                ->body("Güncellenen ürün: {$updated}")
+                                ->success()
+                                ->send();
+                        } catch (Throwable $e) {
+                            Notification::make()
+                                ->title('Fiyatlama hatası')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                            throw $e;
+                        }
+                    }),
             ]);
     }
 
