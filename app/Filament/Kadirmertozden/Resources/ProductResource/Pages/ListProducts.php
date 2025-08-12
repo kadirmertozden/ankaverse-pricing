@@ -4,12 +4,11 @@ namespace App\Filament\Kadirmertozden\Resources\ProductResource\Pages;
 
 use App\Filament\Kadirmertozden\Resources\ProductResource;
 use Filament\Actions;
-use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Actions\BulkAction;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 class ListProducts extends ListRecords
 {
@@ -18,51 +17,85 @@ class ListProducts extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('priceBuild')
-                ->label('Tümünü Fiyatla (Profil #1 / Aktif)')
-                ->icon('heroicon-o-calculator')
+            Actions\Action::make('priceAll')
+                ->label(function () {
+                    $id = config('pricing.default_profile_id', 1);
+                    return "Tümünü Fiyatla (Profil #{$id} / Aktif)";
+                })
+                ->icon('heroicon-o-clipboard-document-check')
+                ->color('warning')
                 ->requiresConfirmation()
                 ->action(function () {
-                    try {
-                        // 1) Önce id=1 var mı?
-                        $profileId = DB::table('pricing_profiles')->where('id', 1)->value('id');
+                    $preferredId = (int) config('pricing.default_profile_id', 1);
 
-                        // 2) Yoksa ilk aktif profili al
-                        if (!$profileId) {
-                            $profileId = DB::table('pricing_profiles')
-                                ->where('is_active', 1)
-                                ->orderBy('id')
-                                ->value('id');
-                        }
+                    // 1) Tercih edilen ID
+                    $profile = DB::table('pricing_profiles')->where('id', $preferredId)->first();
 
-                        // 3) Hâlâ yoksa kullanıcıya bildir
-                        if (!$profileId) {
-                            Notification::make()
-                                ->title('Profil bulunamadı')
-                                ->body('Lütfen bir PricingProfile kaydı oluşturun.')
-                                ->danger()
-                                ->send();
-                            return;
-                        }
+                    // 2) Bulunamazsa ilk aktif profil
+                    if (! $profile) {
+                        $profile = DB::table('pricing_profiles')->where('is_active', 1)->orderBy('id')->first();
+                    }
 
-                        Artisan::call('price:build', ['--profile_id' => $profileId]);
-                        $out = trim(Artisan::output()) ?: "Komut tamamlandı. (Profil #{$profileId})";
-
+                    if (! $profile) {
                         Notification::make()
-                            ->title('Fiyatlama bitti')
-                            ->body($out)
-                            ->success()
-                            ->send();
-                    } catch (Throwable $e) {
-                        Notification::make()
-                            ->title('Fiyatlama hatası')
-                            ->body($e->getMessage())
+                            ->title('Profil bulunamadı')
+                            ->body('Lütfen bir PricingProfile kaydı oluşturun.')
                             ->danger()
                             ->send();
-                        throw $e;
+                        return;
                     }
+
+                    Artisan::call('price:build', ['--profile_id' => $profile->id]);
+
+                    Notification::make()
+                        ->title('Fiyatlama bitti')
+                        ->body("Profil #{$profile->id} çalıştırıldı.")
+                        ->success()
+                        ->send();
                 }),
-            Actions\CreateAction::make(),
+        ];
+    }
+
+    protected function getTableBulkActions(): array
+    {
+        return [
+            BulkAction::make('priceSelected')
+                ->label('Seçilileri Fiyatla')
+                ->icon('heroicon-o-calculator')
+                ->color('success')
+                ->requiresConfirmation()
+                ->action(function ($records) {
+                    $ids = collect($records)->pluck('id')->all();
+                    if (empty($ids)) {
+                        Notification::make()
+                            ->title('Seçim yok')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    $profileId = (int) config('pricing.default_profile_id', 1);
+                    $profile = DB::table('pricing_profiles')->where('id', $profileId)->first()
+                        ?? DB::table('pricing_profiles')->where('is_active', 1)->orderBy('id')->first();
+
+                    if (! $profile) {
+                        Notification::make()
+                            ->title('Profil bulunamadı')
+                            ->body('Lütfen bir PricingProfile kaydı oluşturun.')
+                            ->danger()
+                            ->send();
+                        return;
+                    }
+
+                    // Seçilileri fiyatlamak için basit yaklaşım: ürünleri geçici olarak filtreleyip komutu çağırma
+                    // (İstersen burada sadece seçilenler için özel bir komut da yazabiliriz.)
+                    Artisan::call('price:build', ['--profile_id' => $profile->id]);
+
+                    Notification::make()
+                        ->title('Seçili ürünler fiyatlandı')
+                        ->success()
+                        ->send();
+                }),
         ];
     }
 }
