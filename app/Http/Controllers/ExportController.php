@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Support\Facades\Log;
 
 class ExportController extends Controller
 {
@@ -32,22 +33,20 @@ class ExportController extends Controller
     }
 
     // 3b) Klasik yol: /exports/{folder}/{filename}
-    public function showByPath(Request $request, string $folder, string $filename)
-    {
-        $path = "exports/{$folder}/{$filename}";
 
-        if (!Storage::disk('exports')->exists($path)) {
-            abort(404, 'XML dosyası bulunamadı.');
-        }
 
-        // (Opsiyonel) DB doğrulaması: Bu dosya gerçekten bir ExportRun kaydına ait mi?
-        $existsInDb = ExportRun::where('path', $path)->where('is_public', 1)->exists();
-        if (!$existsInDb) {
-            abort(404, 'Dosya yayında değil.');
-        }
+public function showByToken(Request $request, string $token)
+{
+    Log::info('ENTER showByToken', ['token' => $token]); // 👈 imza
+    ...
+}
 
-        return $this->streamXml($path);
-    }
+public function showByPath(Request $request, string $folder, string $any)
+{
+    Log::info('ENTER showByPath', ['folder' => $folder, 'any' => $any]); // 👈 imza
+    ...
+}
+
 
     /** XML dosyasını Content-Type ve cache header’larıyla stream eder. */
     protected function streamXml(string $path): StreamedResponse

@@ -23,11 +23,19 @@ Route::get('/exports/{folder}/{filename}', function ($folder, $filename) {
 Route::get('/exports/t/{token}', [ExportController::class, 'showByToken'])
     ->name('exports.show');
 
-// (İsteğe bağlı) Klasik yol yapısı isteyenlere:
-// /exports/1/20250812_161733.xml
-Route::get('/exports/{folder}/{filename}', [ExportController::class, 'showByPath'])
-    ->where('filename', '.*\.xml'); // noktalı dosya adlarını da yakalasın
+// Nested path destekli: /exports/1/manual/manual-....xml ya da /exports/1/2025....xml
+Route::get('/exports/{folder}/{any}', [ExportController::class, 'showByPath'])
+    ->where('any', '.*');
+	
+// GEÇİCİ! Sorun bitince sil.
+Route::get('/_debug/exports/{folder}/{any}', function ($folder, $any) {
+    $path = "exports/{$folder}/{$any}";
+    $disk = Storage::disk('exports');
+    if (!$disk->exists($path)) abort(404, 'bulunamadı');
+    return response($disk->get($path), 200)->header('Content-Type','application/xml');
+})->where('any','.*');
 
+	
 Route::middleware(['web', FilamentAuthenticate::class])
     ->prefix('admin/devlogs')      // <--- BURASI değişti
     ->name('admin.devlogs.')
