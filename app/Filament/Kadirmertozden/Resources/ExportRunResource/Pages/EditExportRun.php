@@ -10,18 +10,24 @@ class EditExportRun extends EditRecord
 {
     protected static string $resource = ExportRunResource::class;
 
-    protected function mutateFormDataBeforeSave(array $data): array
-    {
-        $state = $this->form->getState();
-        $xml   = $state['xml_content'] ?? null;
+protected function mutateFormDataBeforeSave(array $data): array
+{
+    if (!empty($this->data['xml_content'])) {
+        $record = $this->getRecord();
+        $full = $record->path;
 
-        if ($xml) {
-            $dir  = 'exports/'.$data['export_profile_id'].'/manual';
-            $name = 'manual-'.now()->format('Ymd-His').'.xml';
-            Storage::disk('local')->put("$dir/$name", $xml);
-            $data['path'] = "$dir/$name";
+        if (!$full) {
+            $profileId = $data['export_profile_id'] ?? $record->export_profile_id;
+            $dir = "exports/{$profileId}/manual";
+            $filename = 'manual-'.now()->format('Ymd-His').'.xml';
+            $full = "{$dir}/{$filename}";
         }
 
-        return $data;
+        Storage::disk('local')->put($full, $this->data['xml_content']);
+        $data['path'] = $full;
     }
+
+    return $data;
+}
+
 }

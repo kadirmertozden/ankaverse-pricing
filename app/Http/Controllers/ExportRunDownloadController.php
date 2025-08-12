@@ -8,13 +8,17 @@ use Illuminate\Support\Facades\Storage;
 
 class ExportDownloadController extends Controller
 {
-    public function download(ExportRun $run)
+    public function download(ExportRun $exportRun)
     {
-        abort_unless($run->path && Storage::disk('local')->exists($run->path), 404);
+        if (blank($exportRun->path) || Storage::disk('local')->missing($exportRun->path)) {
+            abort(404, 'Dosya bulunamadı');
+        }
 
-        return response()->streamDownload(function () use ($run) {
-            echo Storage::disk('local')->get($run->path);
-        }, 'export-'.$run->id.'.xml', [
+        $name = basename($exportRun->path);
+
+        return response()->streamDownload(function () use ($exportRun) {
+            echo Storage::disk('local')->get($exportRun->path);
+        }, $name, [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
     }

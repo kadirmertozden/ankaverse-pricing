@@ -3,37 +3,37 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Builder;
 
 class ExportRun extends Model
 {
-	protected $guarded = [];   // veya $fillable içine 'path' dâhil tüm alanları yaz
-    protected $fillable = [
-        'export_profile_id','status','path','product_count','error',
-        'publish_token','is_public','published_at',
+    protected $guarded = [];
+
+    protected $casts = [
+        'is_public' => 'bool',
+        'published_at' => 'datetime',
     ];
 
-    protected static function booted(): void
-    {
-        static::deleting(function (ExportRun $run) {
-            if ($run->path && Storage::exists($run->path)) {
-                Storage::delete($run->path);
-            }
-        });
-    }
-
+    // İlişki
     public function exportProfile()
     {
-        return $this->belongsTo(\App\Models\ExportProfile::class);
+        return $this->belongsTo(ExportProfile::class, 'export_profile_id');
     }
 
-    // herkese açık URL
-public function getPublicUrlAttribute(): ?string
-{
-    if (! $this->is_public || ! $this->publish_token) return null;
-    $base = config('app.url') ?: (request()?->getSchemeAndHttpHost() ?? '');
-    return rtrim($base, '/').'/feeds/'.$this->publish_token.'.xml';
-}
+    // Sadece yayınlanmış kayıtlar
+    public function scopePublic(Builder $q): Builder
+    {
+        return $q->where('is_public', true);
+    }
 
-	
+    // Admin tabloda / butonlarda görünen yayın linki
+    public function getPublicUrlAttribute(): ?string
+    {
+        if (! $this->publish_token) {
+            return null;
+        }
+
+        // route() .xml ile uyumlu çalışır
+        return route('feeds.show', ['token' => $this->publish_token]);
+    }
 }

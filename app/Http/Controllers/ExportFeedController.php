@@ -3,31 +3,55 @@
 namespace App\Http\Controllers;
 
 use App\Models\ExportRun;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\Response;
 
 class ExportFeedController extends Controller
 {
-    // Public feed: https://.../feeds/{token}.xml
+    /**
+     * Public feed: /feeds/{token}.xml
+     */
     public function show(string $token)
     {
-        $run = ExportRun::where('publish_token', $token)
-            ->where('is_public', true)
-            ->firstOrFail();
+        $run = ExportRun::query()
+            ->where('publish_token', $token)
+            ->public() // scope: is_public = 1
+            ->first();
 
-        if (! $run->path || ! Storage::disk('local')->exists($run->path)) {
-            abort(404, 'Feed file not found');
+        if (! $run) {
+            Log::warning('Feed not found: no run', ['token' => $token]);
+            abort(404);
         }
 
-        return response(Storage::disk('local')->get($run->path), 200, [
+        if (blank($run->path) || Storage::disk('local')->missing($run->path)) {
+            Log::warning('Feed file not found', ['token' => $token, 'path' => $run->path]);
+            abort(404);
+        }
+
+        $content = Storage::disk('local')->get($run->path);
+
+        return response($content, 200, [
             'Content-Type' => 'application/xml; charset=UTF-8',
+            'Cache-Control' => 'no-cache',
         ]);
     }
 
-    // Admin indir
+    /**
+     * İsteğe bağlı: indir (admin tarafında buton için)
+     */
     public function download(ExportRun $exportRun)
     {
-        abort_unless($exportRun->path && Storage::disk('local')->exists($exportRun->path), 404);
-        return Storage::disk('local')->download($exportRun->path, basename($exportRun->path), [
+        if (blank($exportRun->path) || Storage::disk('local')->missing($exportRun->path)) {
+            abort(404, 'Dosya bulunamadı');
+        }
+
+        $name = basename($exportRun->path);
+
+        return response()->streamDownload(function () use ($exportRun) {
+            echo Storage::disk('local')->get($exportRun->path);
+        }, $name, [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
     }
