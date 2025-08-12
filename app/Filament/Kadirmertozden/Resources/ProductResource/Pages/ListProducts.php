@@ -19,7 +19,7 @@ class ListProducts extends ListRecords
         return [
             Actions\Action::make('priceAll')
                 ->label(function () {
-                    $id = config('pricing.default_profile_id', 1);
+                    $id = (int) config('pricing.default_profile_id', 1);
                     return "Tümünü Fiyatla (Profil #{$id} / Aktif)";
                 })
                 ->icon('heroicon-o-clipboard-document-check')
@@ -28,20 +28,24 @@ class ListProducts extends ListRecords
                 ->action(function () {
                     $preferredId = (int) config('pricing.default_profile_id', 1);
 
-                    // 1) Tercih edilen ID
+                    // Tercih edilen ID
                     $profile = DB::table('pricing_profiles')->where('id', $preferredId)->first();
 
-                    // 2) Bulunamazsa ilk aktif profil
+                    // Yoksa ilk aktif
                     if (! $profile) {
                         $profile = DB::table('pricing_profiles')->where('is_active', 1)->orderBy('id')->first();
                     }
 
                     if (! $profile) {
+                        $dbName = config('database.connections.mysql.database');
+                        $count  = DB::table('pricing_profiles')->count();
+
                         Notification::make()
                             ->title('Profil bulunamadı')
-                            ->body('Lütfen bir PricingProfile kaydı oluşturun.')
+                            ->body("Lütfen bir PricingProfile kaydı oluşturun.\nDB: {$dbName}\nProfil sayısı: {$count}")
                             ->danger()
                             ->send();
+
                         return;
                     }
 
@@ -49,7 +53,7 @@ class ListProducts extends ListRecords
 
                     Notification::make()
                         ->title('Fiyatlama bitti')
-                        ->body("Profil #{$profile->id} çalıştırıldı.")
+                        ->body("Profil #{$profile->id} ({$profile->name}) çalıştırıldı.")
                         ->success()
                         ->send();
                 }),
@@ -74,21 +78,22 @@ class ListProducts extends ListRecords
                         return;
                     }
 
-                    $profileId = (int) config('pricing.default_profile_id', 1);
-                    $profile = DB::table('pricing_profiles')->where('id', $profileId)->first()
+                    $profile = DB::table('pricing_profiles')->where('id', (int) config('pricing.default_profile_id', 1))->first()
                         ?? DB::table('pricing_profiles')->where('is_active', 1)->orderBy('id')->first();
 
                     if (! $profile) {
+                        $dbName = config('database.connections.mysql.database');
+                        $count  = DB::table('pricing_profiles')->count();
+
                         Notification::make()
                             ->title('Profil bulunamadı')
-                            ->body('Lütfen bir PricingProfile kaydı oluşturun.')
+                            ->body("Lütfen bir PricingProfile kaydı oluşturun.\nDB: {$dbName}\nProfil sayısı: {$count}")
                             ->danger()
                             ->send();
                         return;
                     }
 
-                    // Seçilileri fiyatlamak için basit yaklaşım: ürünleri geçici olarak filtreleyip komutu çağırma
-                    // (İstersen burada sadece seçilenler için özel bir komut da yazabiliriz.)
+                    // Şimdilik tüm kataloğu fiyatlıyoruz (performanslı). İstersek seçili ID'lere özel komut ekleriz.
                     Artisan::call('price:build', ['--profile_id' => $profile->id]);
 
                     Notification::make()
