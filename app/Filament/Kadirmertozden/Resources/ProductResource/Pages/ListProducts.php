@@ -8,6 +8,7 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ListProducts extends ListRecords
@@ -23,7 +24,25 @@ class ListProducts extends ListRecords
                 ->requiresConfirmation()
                 ->action(function () {
                     try {
-                        Artisan::call('price:build', ['--profile_id' => 1]);
+                        // Profil id 1 yoksa aktif ilk profili bul
+                        $profileId = DB::table('pricing_profiles')->where('id', 1)->value('id');
+                        if (!$profileId) {
+                            $profileId = DB::table('pricing_profiles')
+                                ->where('is_active', 1)
+                                ->orderBy('id')
+                                ->value('id');
+                        }
+
+                        if (!$profileId) {
+                            Notification::make()
+                                ->title('Profil bulunamadı')
+                                ->body('Lütfen bir PricingProfile kaydı oluşturun.')
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
+                        Artisan::call('price:build', ['--profile_id' => $profileId]);
                         $out = trim(Artisan::output()) ?: 'Komut tamamlandı.';
                         Notification::make()
                             ->title('Fiyatlama bitti')
@@ -36,7 +55,7 @@ class ListProducts extends ListRecords
                             ->body($e->getMessage())
                             ->danger()
                             ->send();
-                        throw $e; // log’a düşsün
+                        throw $e;
                     }
                 }),
             Actions\CreateAction::make(),
