@@ -8,15 +8,14 @@ use App\Http\Controllers\ExportFeedController;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 
 Route::middleware(['web', FilamentAuthenticate::class])
-    ->prefix('admin/devlogs')                 // ← 'admin/logs' yerine
-    ->name('admin.devlogs.')                  // ← isim de değişti
+    ->prefix('admin/devlogs')      // <--- BURASI değişti
+    ->name('admin.devlogs.')
     ->group(function () {
         Route::get('/', function () {
             $dir = storage_path('logs');
             $files = collect(glob($dir.'/*.log'))
                 ->map(fn ($p) => basename($p))
                 ->values();
-
             return response()->json($files);
         })->name('index');
 
@@ -24,7 +23,6 @@ Route::middleware(['web', FilamentAuthenticate::class])
             abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $file), 404);
             $path = storage_path('logs/'.$file);
             abort_unless(file_exists($path), 404, 'Log dosyası yok');
-
             return response()->download($path, $file, [
                 'Content-Type' => 'text/plain; charset=UTF-8',
             ]);
@@ -34,10 +32,8 @@ Route::middleware(['web', FilamentAuthenticate::class])
             abort_unless(preg_match('/^[A-Za-z0-9._-]+\.log$/', $file), 404);
             $path = storage_path('logs/'.$file);
             abort_unless(file_exists($path), 404, 'Log dosyası yok');
-
             $lines = max(1, min((int) request('lines', 200), 2000));
             $content = implode(PHP_EOL, array_slice(file($path, FILE_IGNORE_NEW_LINES), -$lines));
-
             return response($content, 200, ['Content-Type' => 'text/plain; charset=UTF-8']);
         })->name('tail');
     });
