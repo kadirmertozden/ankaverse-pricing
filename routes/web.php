@@ -6,6 +6,27 @@ use App\Models\User;
 use App\Http\Controllers\ExportRunDownloadController;
 use App\Http\Controllers\ExportFeedController;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
+use Illuminate\Support\Facades\Storage;
+use App\Http\Controllers\ExportController;
+
+Route::get('/exports/{folder}/{filename}', function ($folder, $filename) {
+    $path = "exports/{$folder}/{$filename}";
+
+    if (!Storage::exists($path)) {
+        abort(404, 'XML dosyası bulunamadı.');
+    }
+
+    return response(Storage::get($path), 200)
+        ->header('Content-Type', 'application/xml');
+});
+// Token ile güvenli yayın (önerilir)
+Route::get('/exports/t/{token}', [ExportController::class, 'showByToken'])
+    ->name('exports.show');
+
+// (İsteğe bağlı) Klasik yol yapısı isteyenlere:
+// /exports/1/20250812_161733.xml
+Route::get('/exports/{folder}/{filename}', [ExportController::class, 'showByPath'])
+    ->where('filename', '.*\.xml'); // noktalı dosya adlarını da yakalasın
 
 Route::middleware(['web', FilamentAuthenticate::class])
     ->prefix('admin/devlogs')      // <--- BURASI değişti

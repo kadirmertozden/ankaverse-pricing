@@ -59,7 +59,10 @@ return [
             'throw' => false,
             'report' => false,
         ],
-
+    'exports' => [
+        'driver' => 'local',
+        'root' => storage_path('app'), // ExportRun.path 'exports/...' şeklinde ise burası doğru yer
+        'throw' => false,
     ],
 
     /*
