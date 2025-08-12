@@ -5,6 +5,14 @@ use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Http\Controllers\ExportRunDownloadController;
 use App\Http\Controllers\ExportFeedController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/admin/logs/laravel', function () {
+    abort_unless(auth()->check(), 403);
+    $path = storage_path('logs/laravel.log');
+    abort_unless(file_exists($path), 404, 'Log dosyası yok');
+    return response()->download($path, 'laravel.log', ['Content-Type' => 'text/plain; charset=UTF-8']);
+})->name('admin.logs.download');
 
 Route::get('/feeds/{token}.xml', [ExportFeedController::class, 'show'])
     ->middleware('throttle:120,1')
