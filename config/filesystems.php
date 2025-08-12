@@ -61,11 +61,12 @@ return [
     ],
 
     // 👇 exports DİSKİ BURADA OLMALI
-    'exports' => [
-        'driver' => 'local',
-        'root' => storage_path('app'), // ExportRun.path 'exports/...' ise doğru yer
-        'throw' => false,
-    ],
+	'exports' => [
+		'driver' => 'local',
+		'root' => storage_path('app/private'), // <-- BURAYA AL
+		'throw' => false,
+	],
+
 ],
 
 
