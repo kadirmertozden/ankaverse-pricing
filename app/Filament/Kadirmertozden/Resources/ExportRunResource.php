@@ -50,18 +50,19 @@ class ExportRunResource extends Resource
             Forms\Components\Fieldset::make('XML Yükle')->schema([
                 Forms\Components\FileUpload::make('path')
     ->label('XML Dosyası')
-    ->disk('local') // <— ÖNEMLİ: dosya nereye yazılacak
+    ->disk('local')
     ->directory(fn ($get) => 'exports/'.$get('export_profile_id').'/manual')
     ->visibility('private')
     ->acceptedFileTypes(['application/xml','text/xml'])
-    ->helperText('Alternatif: Aşağıya XML içeriğini yapıştırabilirsin.')
-    ->maxSize(2048), // KB
+    ->maxSize(2048)
+    ->rules(['required_without:xml_content']), // KB
             ])->columns(1),
 
             Forms\Components\Fieldset::make('XML Yapıştır')->schema([
                 Forms\Components\Textarea::make('xml_content')
                     ->rows(18)
-                    ->dehydrate(false) // DB'ye yazma; dosyaya yazılacaksa Create/Edit sayfasında handle et
+    ->dehydrated(false)
+    ->rules(['required_without:path'])
                     ->helperText('XML içeriğini burada düzenleyip kaydedebilirsin.'),
             ])->columns(1),
 
@@ -108,6 +109,7 @@ class ExportRunResource extends Resource
                 Tables\Actions\Action::make('download')
                     ->label('İndir')
                     ->icon('heroicon-o-arrow-down-tray')
+					->visible(fn ($r) => filled($r->path) && \Storage::disk('local')->exists($r->path))
                     ->visible(fn ($record) => filled($record->path) && Route::has('admin.exports.download'))
                     ->url(fn ($record) => route('admin.exports.download', $record))
                     ->openUrlInNewTab(),
@@ -115,6 +117,7 @@ class ExportRunResource extends Resource
                 Tables\Actions\Action::make('publish')
                     ->label('Yayınla')
                     ->icon('heroicon-o-globe-alt')
+					->visible(fn ($r) => filled($r->path) && \Storage::disk('local')->exists($r->path))
                     ->visible(fn ($record) => $record->path && ! $record->is_public)
                     ->requiresConfirmation()
                     ->action(function ($record) {

@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Storage;
 
 class ExportRun extends Model
 {
+	protected $guarded = [];   // veya $fillable içine 'path' dâhil tüm alanları yaz
     protected $fillable = [
         'export_profile_id','status','path','product_count','error',
         'publish_token','is_public','published_at',
@@ -29,9 +30,9 @@ class ExportRun extends Model
     // herkese açık URL
 public function getPublicUrlAttribute(): ?string
 {
-    return $this->is_public && $this->publish_token
-        ? route('feeds.show', ['token' => $this->publish_token]) // .xml route zaten ekli
-        : null;
+    if (! $this->is_public || ! $this->publish_token) return null;
+    $base = config('app.url') ?: (request()?->getSchemeAndHttpHost() ?? '');
+    return rtrim($base, '/').'/feeds/'.$this->publish_token.'.xml';
 }
 
 	
