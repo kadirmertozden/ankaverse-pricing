@@ -27,9 +27,12 @@ class ExportRun extends Model
     }
 
     // herkese açık URL
-    public function getPublicUrlAttribute(): ?string
-    {
-        if (!$this->is_public || !$this->publish_token) return null;
-        return url("/feeds/{$this->publish_token}.xml");
-    }
+public function getPublicUrlAttribute(): ?string
+{
+    return $this->is_public && $this->publish_token
+        ? route('feeds.show', ['token' => $this->publish_token]) // .xml route zaten ekli
+        : null;
+}
+
+	
 }

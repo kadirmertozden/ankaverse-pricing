@@ -45,14 +45,13 @@ Route::get('/admin/logs/laravel', function () {
     return response()->download($path, 'laravel.log', ['Content-Type' => 'text/plain; charset=UTF-8']);
 })->name('admin.logs.download');
 
-Route::get('/feeds/{token}.xml', [ExportFeedController::class, 'show'])
-    ->middleware('throttle:120,1')
-    ->name('feeds.public');
 
-Route::middleware(['web','auth'])->group(function () {
-    Route::get('/admin/exports/{exportRun}/download', [ExportRunDownloadController::class, 'download'])
-        ->name('admin.exports.download');
-});
+Route::get('/feeds/{token}.xml', [ExportFeedController::class, 'show'])
+    ->name('feeds.show');
+
+Route::get('/admin/exports/{exportRun}/download', [ExportFeedController::class, 'download'])
+    ->name('admin.exports.download')   // Filament’te kullandığın isimle aynı
+    ->middleware(['auth']);            // İstersen kaldır/özelleştir
 
 Route::get('/debug/users-list', function () {
     return User::select('id','name','email','is_admin')->orderBy('id')->limit(10)->get();
