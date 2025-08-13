@@ -62,9 +62,15 @@ return [
 
     // 👇 exports DİSKİ BURADA OLMALI
 	'exports' => [
-		'driver' => 'local',
-		'root' => storage_path('app/private/exports'),
-		'throw' => false,
+    'driver' => 's3',
+    'key'    => env('AWS_ACCESS_KEY_ID'),
+    'secret' => env('AWS_SECRET_ACCESS_KEY'),
+    'region' => env('AWS_DEFAULT_REGION', 'auto'),
+    'bucket' => env('EXPORTS_BUCKET', 'ankaverse-exports'),
+    'endpoint' => env('AWS_ENDPOINT'),
+    'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+    'visibility' => env('EXPORTS_PUBLIC', false) ? 'public' : 'private',
+    'throw' => false, 
 	],
 
 ],
