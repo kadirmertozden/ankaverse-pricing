@@ -78,7 +78,14 @@ $isPublic = \App\Models\ExportRun::whereIn('path', [$normalized, $incoming])->wh
      */
     protected function resolveExportsPath(string $path): array
     {
-        $disk = Storage::disk('exports');
+        // $resolvedPath bulunduğunda:
+$disk = Storage::disk('exports');
+
+// private bucket => geçici imzalı URL (10 dk)
+$url = $disk->temporaryUrl($resolvedPath, now()->addMinutes(10));
+
+return redirect()->away($url, 302);
+
 
         $root = (string) config('filesystems.disks.exports.root'); // bilgi amaçlı
         $clean = ltrim($path, '/');
