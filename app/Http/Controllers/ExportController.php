@@ -11,47 +11,95 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExportController extends Controller
 {
-    // /exports/t/{token}
-    public function showByToken(Request $request, string $token)
+    /**
+     * Token ile yayın: /exports/t/{token}
+     * ExportRun.publish_token ile eşleşir ve is_public=1 ise dosyayı döner.
+     */
+    public function showByToken(Request $request, string $token): StreamedResponse
     {
         Log::info('ENTER showByToken', ['token' => $token]);
 
+        /** @var ExportRun|null $run */
         $run = ExportRun::where('publish_token', $token)->firstOrFail();
 
         if (!$run->is_public) {
             abort(404, 'Dosya yayında değil');
         }
 
-        return $this->serve($run->path);
+        // DB'deki path'i kullan (ör: "exports/1/foo.xml")
+        [$disk, $resolvedPath] = $this->resolveExportsPath($run->path);
+
+        return $this->streamXml($disk, $resolvedPath);
     }
 
-    // /exports/{folder}/{any}
-    public function showByPath(Request $request, string $folder, string $any)
+    /**
+     * Yol bazlı erişim:
+     *  - /exports/1/20250812_161733.xml
+     *  - /exports/1/manual/manual-20250812-170641.xml
+     *
+     * NOT: Route tanımı {any} ile olmalı ve where('any','.*') eklenmeli.
+     */
+    public function showByPath(Request $request, string $folder, string $any): StreamedResponse
     {
-        $path = "exports/{$folder}/{$any}";
-        Log::info('ENTER showByPath', ['path' => $path]);
+        $incoming = "exports/{$folder}/{$any}";
+        Log::info('ENTER showByPath', ['incoming' => $incoming]);
 
-        // İstersen bu DB doğrulamayı kaldırabilirsin
-        $isPublic = ExportRun::where('path', $path)->where('is_public', 1)->exists();
+        // DB doğrulaması (isteğe bağlı – açık tutmak iyi bir pratik)
+        $isPublic = ExportRun::where('path', $incoming)->where('is_public', 1)->exists()
+            || ExportRun::where('path', ltrim($any, '/'))->where('is_public', 1)->exists();
         if (!$isPublic) {
             abort(404, 'Dosya yayında değil');
         }
 
-        return $this->serve($path);
+        [$disk, $resolvedPath] = $this->resolveExportsPath($incoming);
+
+        return $this->streamXml($disk, $resolvedPath);
     }
 
-    /** exports diskinden stream eder */
-    protected function serve(string $path): StreamedResponse
+    /**
+     * Exports diskinde gelen path'i normalize eder.
+     * Aşağıdaki olasılıkları sırasıyla dener:
+     *   - "1/..." (kökte arar)
+     *   - "exports/1/..." (köke "exports/" ön eki ile arar)
+     *   - Eğer kök zaten ".../private/exports" ise, gelen "exports/..." başını kırpar.
+     *
+     * @return array{0:\Illuminate\Contracts\Filesystem\Filesystem,1:string} [$disk, $chosenPath]
+     */
+    protected function resolveExportsPath(string $path): array
     {
         $disk = Storage::disk('exports');
 
-        if (!$disk->exists($path)) {
-            Log::warning('Feed file not found (exports disk)', ['path' => $path]);
-            abort(404, 'XML dosyası bulunamadı');
+        $root = (string) config('filesystems.disks.exports.root'); // bilgi amaçlı
+        $clean = ltrim($path, '/');
+
+        // Aday listesi (tekrarları at)
+        $candidates = array_values(array_unique([
+            // Eğer kök ".../private/exports" ise "exports/" ön ekini kırp
+            preg_replace('#^exports/#', '', $clean),
+            // Düz gelen
+            $clean,
+            // Ters olasılık: kök ".../private" ise "exports/" ile birlikte dene
+            'exports/' . $clean,
+        ]));
+
+        foreach ($candidates as $try) {
+            if ($disk->exists($try)) {
+                Log::info('RESOLVED exports path', ['root' => $root, 'chosen' => $try]);
+                return [$disk, $try];
+            }
         }
 
+        Log::warning('Feed file not found (exports disk)', ['tried' => $candidates, 'root' => $root]);
+        abort(404, 'XML dosyası bulunamadı');
+    }
+
+    /**
+     * XML içeriğini stream eder; Content-Type, ETag, Cache-Control vb. ile.
+     */
+    protected function streamXml($disk, string $path): StreamedResponse
+    {
         $lastModified = $disk->lastModified($path);
-        $size = $disk->size($path);
+        $size         = $disk->size($path);
 
         return Response::stream(function () use ($disk, $path) {
             $stream = $disk->readStream($path);
@@ -63,9 +111,10 @@ class ExportController extends Controller
             'Content-Type'        => 'application/xml; charset=UTF-8',
             'Content-Disposition' => 'inline; filename="'.basename($path).'"',
             'Content-Length'      => (string) $size,
-            'Last-Modified'       => gmdate('D, d M Y H:i:s', $lastModified).' GMT',
+            'Last-Modified'       => gmdate('D, d M Y H:i:s', $lastModified) . ' GMT',
             'Cache-Control'       => 'public, max-age=300, s-maxage=300',
-            'ETag'                => sha1($path.$lastModified.$size),
+            'ETag'                => sha1($path . '|' . $lastModified . '|' . $size),
+            'X-Exports-Path'      => $path, // debug için faydalı
         ]);
     }
 }
