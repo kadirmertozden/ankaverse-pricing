@@ -9,6 +9,19 @@ use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 use Illuminate\Support\Facades\Storage;
 use App\Http\Controllers\ExportController;
 
+
+
+Route::get('/__ping', fn() => response('ok',200));
+
+Route::get('/__debug/exports/{folder}/{any}', function($folder,$any){
+    $path = "1/$any"; // DB normalize ettiğimiz format
+    if (Storage::disk('exports')->exists($path)) {
+        return response(Storage::disk('exports')->get($path),200)->header('Content-Type','application/xml');
+    }
+    return response("missing: $path",404);
+})->where('any','.*');
+
+
 Route::get('/exports/{folder}/{filename}', function ($folder, $filename) {
     $path = "exports/{$folder}/{$filename}";
 
