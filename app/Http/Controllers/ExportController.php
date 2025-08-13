@@ -41,13 +41,26 @@ class ExportController extends Controller
      */
     public function showByPath(Request $request, string $folder, string $any): StreamedResponse
     {
+		Log::info('ENTER showByPath', ['folder'=>$folder, 'any'=>$any]);
+$incoming = "exports/{$folder}/{$any}";
+$normalized = "1/{$any}";
+
+$existsDisk = Storage::disk('exports')->exists($normalized);
+$existsDb   = \App\Models\ExportRun::whereIn('path', [$normalized, $incoming])
+               ->where('is_public',1)->exists();
+
+Log::info('EXPORT DIAG', [
+  'incoming'=>$incoming,
+  'normalized'=>$normalized,
+  'disk_exists'=>$existsDisk,
+  'db_exists'=>$existsDb,
+]);
         $incoming = "exports/{$folder}/{$any}";
 $normalized = "1/{$any}";
 
 $isPublic = \App\Models\ExportRun::whereIn('path', [$normalized, $incoming])->where('is_public',1)->exists();
-if (!$isPublic) {
-    abort(404, 'Dosya yayında değil');
-}
+// if (!$isPublic) { abort(404, 'Dosya yayında değil'); }
+
 
         [$disk, $resolvedPath] = $this->resolveExportsPath($incoming);
 
