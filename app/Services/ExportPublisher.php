@@ -52,32 +52,43 @@ class ExportPublisher
     /**
      * Profilden XML üret + S3'e yükle + ExportRun kaydı oluştur.
      */
-    public function buildAndPublishFromProfile(ExportProfile $profile): ExportRun
-    {
-        // 1) XML oluştur (Sisteminde halihazırda ne varsa oraya bağla)
-        // A) Zaten bir üretici servisin varsa:
-        // $xml = app(\App\Services\YourExistingExportBuilder::class)->buildForProfile($profile);
+    public function buildAndPublishFromProfile(\App\Models\ExportProfile $profile): \App\Models\ExportRun
+{
+    $builder = app(\App\Services\XmlExportBuilder::class);
 
-        // B) Yoksa geçici (örnek) bir üretim:
-        $xml = $this->fallbackXml($profile);
+    // 1) XML’i temp dosyaya yaz (streaming)
+    $res = $builder->buildToTempFile($profile);
+    $tmpPath = $res['tmp_path'];
+    $count = $res['count'];
 
-        // 2) Yol ve dosya adı
-        $basename = now()->format('Ymd_His');       // 20250814_181200
-        $path = "exports/{$profile->id}/{$basename}.xml";
+    // 2) Dosya adı & yol
+    $basename = now()->format('Ymd_His'); // 20250814_181200
+    $path = "exports/{$profile->id}/{$basename}.xml";
 
-        // 3) DB kaydı
-        $run = new ExportRun();
-        $run->export_profile_id = $profile->id;
-        $run->path = $path;
-        $run->status = 'manual';
-        $run->product_count = 0; // istersen gerçek sayıyı üretici döndürsün
-        $run->save();
+    // 3) DB kaydı
+    $run = new \App\Models\ExportRun();
+    $run->export_profile_id = $profile->id;
+    $run->path = $path;
+    $run->status = 'built';
+    $run->product_count = $count;
+    $run->save();
 
-        // 4) S3’e yaz + yayınla
-        $this->upload($run, $xml);
+    // 4) S3’e stream yükle
+    $stream = fopen($tmpPath, 'r');
+    Storage::disk('s3')->writeStream($path, $stream);
+    if (is_resource($stream)) fclose($stream);
 
-        return $run;
-    }
+    // 5) Temp dosyayı sil
+    @unlink($tmpPath);
+
+    // 6) Publish işaretleri
+    $run->is_public = true;
+    $run->published_at = now();
+    $run->save();
+
+    return $run;
+}
+
 
     private function fallbackXml(ExportProfile $profile): string
     {
