@@ -4,11 +4,28 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\User;
-
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\ExportFeedController;
 use App\Http\Controllers\ExportRunDownloadController; // (kullanıyorsan dursun)
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
+
+use App\Http\Controllers\ExportDownloadController;
+
+// /20250812_161733.xml gibi istekleri karşıla:
+Route::get('/{basename}.xml', function ($basename) {
+    $path = "exports/1/{$basename}.xml";
+    if (!Storage::disk('s3')->exists($path)) {
+        abort(404);
+    }
+    $stream = Storage::disk('s3')->readStream($path);
+    return response()->stream(function () use ($stream) {
+        fpassthru($stream);
+    }, 200, [
+        'Content-Type' => 'application/xml; charset=UTF-8',
+        'Cache-Control' => 'public, max-age=31536000, immutable',
+    ]);
+})->where('basename', '[A-Za-z0-9_\-]+');
+
 
 // --- Debug ping (isteğe bağlı) ---
 Route::get('/__ping', fn () => response('ok', 200));
