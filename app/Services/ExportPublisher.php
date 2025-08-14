@@ -74,9 +74,16 @@ class ExportPublisher
     $run->save();
 
     // 4) S3’e stream yükle
-    $stream = fopen($tmpPath, 'r');
-    Storage::disk('s3')->writeStream($path, $stream);
-    if (is_resource($stream)) fclose($stream);
+$stream = @fopen($tmpPath, 'rb');
+if ($stream === false) {
+    throw new \RuntimeException("Temp dosya açılamadı: {$tmpPath}");
+}
+\Illuminate\Support\Facades\Storage::disk('s3')->writeStream($path, $stream);
+fclose($stream);
+
+// temp temizliği
+@unlink($tmpPath);
+
 
     // 5) Temp dosyayı sil
     @unlink($tmpPath);
