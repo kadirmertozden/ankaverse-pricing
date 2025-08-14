@@ -11,6 +11,9 @@ use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 
 use App\Http\Controllers\ExportDownloadController;
 
+
+Route::get('/{basename}.xml', [ExportDownloadController::class, 'show'])
+    ->where('basename', '[A-Za-z0-9_\-]+');
 // /20250812_161733.xml gibi istekleri karşıla:
 Route::get('/{basename}.xml', function ($basename) {
     $path = "exports/1/{$basename}.xml";
@@ -18,12 +21,17 @@ Route::get('/{basename}.xml', function ($basename) {
         abort(404);
     }
     $stream = Storage::disk('s3')->readStream($path);
-    return response()->stream(function () use ($stream) {
-        fpassthru($stream);
-    }, 200, [
-        'Content-Type' => 'application/xml; charset=UTF-8',
-        'Cache-Control' => 'public, max-age=31536000, immutable',
-    ]);
+return response()->stream(function () use ($stream) {
+    fpassthru($stream);
+}, 200, [
+    'Content-Type'              => 'application/xml; charset=UTF-8',
+    'Content-Disposition'       => 'inline; filename="'.$basename.'.xml"',
+    'Cache-Control'             => 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options'    => 'nosniff',
+    'Content-Security-Policy'   => "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox",
+    'Referrer-Policy'           => 'no-referrer',
+]);
+
 })->where('basename', '[A-Za-z0-9_\-]+');
 
 

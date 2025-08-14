@@ -71,115 +71,53 @@ class ExportRunResource extends Resource
         ])->columns(1);
     }
 
-    public static function table(Table $table): Table
-    {
-        return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('exportProfile.name')
-                    ->label('Profil')
-                    ->searchable()
-                    ->sortable(),
+   public static function table(Table $table): Table
+{
+    return $table
+        ->columns([
+            TextColumn::make('id')->sortable(),
+            TextColumn::make('path')->label('Path')->limit(60)->wrap(),
+            IconColumn::make('is_public')->boolean()->label('Public'),
+            TextColumn::make('published_at')->dateTime()->label('Published'),
+            TextColumn::make('public_url')
+                ->label('Public URL')
+                ->url(fn ($record) => $record->public_url, true)
+                ->copyable()
+                ->copyMessage('Kopyalandı'),
+        ])
+        ->actions([
+            // R2'ye yükle/yenile (senin mevcut aksiyonun varsa bunu atla)
+            Action::make('publish_to_r2')
+                ->label('R2’ye Yükle / Yenile')
+                ->icon('heroicon-o-cloud-arrow-up')
+                ->action(function ($record) {
+                    app(\App\Services\ExportPublisher::class)->upload($record);
+                    \Filament\Notifications\Notification::make()
+                        ->title('Yüklendi')
+                        ->body('R2’ye yüklendi: ' . $record->public_url)
+                        ->success()->send();
+                }),
 
-                Tables\Columns\TextColumn::make('status')
-                    ->badge()
-                    ->colors([
-                        'success' => 'done',
-                        'warning' => 'running',
-                        'danger'  => 'failed',
-                        'gray'    => 'manual',
-                        'info'    => 'queued',
-                    ]),
+            // Görüntüle
+            Action::make('view')
+                ->label('Görüntüle')
+                ->icon('heroicon-o-eye')
+                ->url(fn ($record) => $record->public_url, true),
 
-                Tables\Columns\TextColumn::make('product_count')
-                    ->alignRight(),
+            // İndir (isteğin)
+            Action::make('download')
+                ->label('İndir')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->url(fn ($record) => $record->download_url, true)
+                ->openUrlInNewTab(false),
 
-                Tables\Columns\TextColumn::make('public_url')
-                    ->label('Yayın Linki')
-                    ->getStateUsing(fn ($record) => $record->public_url)
-                    ->url(fn ($record) => $record->public_url, shouldOpenInNewTab: true)
-                    ->extraAttributes([
-                        'style' => 'max-width:420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;',
-                    ]),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
-                    ->since(),
-            ])
-            ->actions([
-                Tables\Actions\Action::make('download')
-                    ->label('İndir')
-                    ->icon('heroicon-o-arrow-down-tray')
-					->visible(fn ($r) => filled($r->path) && \Storage::disk('local')->exists($r->path))
-                    ->visible(fn ($record) => filled($record->path) && Route::has('admin.exports.download'))
-                    ->url(fn ($record) => route('admin.exports.download', $record))
-                    ->openUrlInNewTab(),
-
-                Tables\Actions\Action::make('publish')
-                    ->label('Yayınla')
-                    ->icon('heroicon-o-globe-alt')
-					->visible(fn ($r) => filled($r->path) && \Storage::disk('local')->exists($r->path))
-                    ->visible(fn ($record) => $record->path && ! $record->is_public)
-                    ->requiresConfirmation()
-                    ->action(function ($record) {
-                        if (! $record->publish_token) {
-                            $record->publish_token = Str::random(32);
-                        }
-                        $record->is_public    = true;
-                        $record->published_at = now();
-                        $record->save();
-
-                        Notification::make()
-                            ->title('XML yayınlandı')
-                            ->success()
-                            ->send();
-                    }),
-
-                Tables\Actions\Action::make('openLink')
-                    ->label('Aç')
-                    ->icon('heroicon-o-arrow-top-right-on-square')
-                    ->visible(fn ($record) => $record->is_public && $record->public_url)
-                    ->url(fn ($record) => $record->public_url, true),
-
-                Tables\Actions\Action::make('regenerate')
-                    ->label('Linki Yenile')
-                    ->icon('heroicon-o-arrow-path')
-                    ->color('warning')
-                    ->visible(fn ($record) => $record->is_public)
-                    ->requiresConfirmation()
-                    ->action(function ($record) {
-                        $record->publish_token = Str::random(32);
-                        $record->published_at  = now();
-                        $record->save();
-
-                        Notification::make()
-                            ->title('Yayın linki yenilendi')
-                            ->success()
-                            ->send();
-                    }),
-
-                Tables\Actions\Action::make('unpublish')
-                    ->label('Yayını Kaldır')
-                    ->icon('heroicon-o-lock-closed')
-                    ->color('danger')
-                    ->visible(fn ($record) => $record->is_public)
-                    ->requiresConfirmation()
-                    ->action(function ($record) {
-                        $record->is_public = false;
-                        $record->save();
-
-                        Notification::make()
-                            ->title('Yayın kaldırıldı')
-                            ->success()
-                            ->send();
-                    }),
-
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
-    }
+            // Linki kopyala
+            Action::make('copy_link')
+                ->label('Linki Kopyala')
+                ->icon('heroicon-o-clipboard')
+                ->copyable()
+                ->copyableState(fn ($record) => $record->public_url)
+                ->copyMessage('Kopyalandı'),
+        ]);
+}
 }

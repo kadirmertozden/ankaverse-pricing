@@ -27,13 +27,20 @@ class ExportRun extends Model
     }
 
     // Admin tabloda / butonlarda görünen yayın linki
-    public function getPublicUrlAttribute(): ?string
-    {
-        if (! $this->publish_token) {
-            return null;
-        }
 
-        // route() .xml ile uyumlu çalışır
-        return route('feeds.show', ['token' => $this->publish_token]);
-    }
+public function getBasenameAttribute(): string
+{
+    return pathinfo($this->path, PATHINFO_FILENAME);
+}
+
+public function getPublicUrlAttribute(): string
+{
+    return url($this->basename . '.xml');
+}
+
+public function getDownloadUrlAttribute(): string
+{
+    return $this->public_url . '?dl=1';
+}
+
 }
