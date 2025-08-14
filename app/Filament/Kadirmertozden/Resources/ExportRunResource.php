@@ -2,17 +2,21 @@
 
 namespace App\Filament\Kadirmertozden\Resources;
 
-use App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
-use App\Models\ExportProfile;
 use App\Models\ExportRun;
-use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Str;
+
+// KOLONLAR
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\IconColumn;
+
+// AKSİYONLAR
+use Filament\Tables\Actions\Action;
+
+// (opsiyonel bildirim kullanacaksan)
+use Filament\Notifications\Notification;
+
 
 class ExportRunResource extends Resource
 {
@@ -71,53 +75,55 @@ class ExportRunResource extends Resource
         ])->columns(1);
     }
 
-   public static function table(Table $table): Table
+  public static function table(Table $table): Table
 {
     return $table
         ->columns([
-            TextColumn::make('id')->sortable(),
+            TextColumn::make('id')->label('ID')->sortable(),
             TextColumn::make('path')->label('Path')->limit(60)->wrap(),
-            IconColumn::make('is_public')->boolean()->label('Public'),
-            TextColumn::make('published_at')->dateTime()->label('Published'),
+            IconColumn::make('is_public')->label('Public')->boolean(),
+            TextColumn::make('published_at')->label('Published')->dateTime(),
+
             TextColumn::make('public_url')
                 ->label('Public URL')
-                ->url(fn ($record) => $record->public_url, true)
+                ->url(fn (ExportRun $record) => $record->public_url, true)
                 ->copyable()
                 ->copyMessage('Kopyalandı'),
         ])
         ->actions([
-            // R2'ye yükle/yenile (senin mevcut aksiyonun varsa bunu atla)
             Action::make('publish_to_r2')
                 ->label('R2’ye Yükle / Yenile')
                 ->icon('heroicon-o-cloud-arrow-up')
-                ->action(function ($record) {
+                ->action(function (ExportRun $record) {
                     app(\App\Services\ExportPublisher::class)->upload($record);
-                    \Filament\Notifications\Notification::make()
-                        ->title('Yüklendi')
-                        ->body('R2’ye yüklendi: ' . $record->public_url)
-                        ->success()->send();
+                    if (class_exists(Notification::class)) {
+                        Notification::make()
+                            ->title('Yüklendi')
+                            ->body('R2’ye yüklendi: ' . $record->public_url)
+                            ->success()
+                            ->send();
+                    }
                 }),
 
-            // Görüntüle
             Action::make('view')
                 ->label('Görüntüle')
                 ->icon('heroicon-o-eye')
-                ->url(fn ($record) => $record->public_url, true),
+                ->url(fn (ExportRun $record) => $record->public_url, true),
 
-            // İndir (isteğin)
             Action::make('download')
                 ->label('İndir')
                 ->icon('heroicon-o-arrow-down-tray')
-                ->url(fn ($record) => $record->download_url, true)
+                ->url(fn (ExportRun $record) => $record->download_url, true)
                 ->openUrlInNewTab(false),
 
-            // Linki kopyala
             Action::make('copy_link')
                 ->label('Linki Kopyala')
                 ->icon('heroicon-o-clipboard')
+                ->action(fn (ExportRun $record) => null)
                 ->copyable()
-                ->copyableState(fn ($record) => $record->public_url)
+                ->copyableState(fn (ExportRun $record) => $record->public_url)
                 ->copyMessage('Kopyalandı'),
         ]);
 }
+
 }
