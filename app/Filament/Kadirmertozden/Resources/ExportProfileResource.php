@@ -9,7 +9,9 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\BulkAction;
+use Filament\Notifications\Notification;
 class ExportProfileResource extends Resource
 {
     protected static ?string $model = ExportProfile::class;
@@ -78,25 +80,47 @@ class ExportProfileResource extends Resource
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('generateXml')
-                    ->label('XML Oluştur')
-                    ->icon('heroicon-o-arrow-path')
-                    ->requiresConfirmation()
-                    ->action(function ($record) {
-                        \App\Jobs\GenerateExportXmlJob::dispatch($record->id);
-                        \Filament\Notifications\Notification::make()
-                            ->title('XML oluşturma başlatıldı')
-                            ->success()
-                            ->send();
-                    }),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+->actions([
+    // ... mevcut aksiyonların ...
+
+    Action::make('build_xml')
+        ->label('XML Oluştur')
+        ->icon('heroicon-o-document-plus')
+        ->action(function (\App\Models\ExportProfile $record) {
+            $run = app(\App\Services\ExportPublisher::class)->buildAndPublishFromProfile($record);
+
+            if (class_exists(Notification::class)) {
+                Notification::make()
+                    ->title('XML Oluşturuldu')
+                    ->body('Link: ' . $run->public_url)
+                    ->success()
+                    ->send();
+            }
+        })
+        ->successRedirectUrl(route('filament.kadirmertozden.resources.export-runs.index')), // panel/route adını kendi paneline göre düzelt
+])
+
+->bulkActions([
+    // ... mevcut bulk aksiyonların ...
+
+    BulkAction::make('bulk_build_xml')
+        ->label('Seçilen Profillerden XML Oluştur')
+        ->icon('heroicon-o-document-plus')
+        ->action(function ($records) {
+            $svc = app(\App\Services\ExportPublisher::class);
+            foreach ($records as $profile) {
+                $svc->buildAndPublishFromProfile($profile);
+            }
+            if (class_exists(Notification::class)) {
+                Notification::make()
+                    ->title('XML\'ler oluşturuldu')
+                    ->success()
+                    ->send();
+            }
+        })
+        ->successRedirectUrl(route('filament.kadirmertozden.resources.export-runs.index')), // panel/route adını kendi paneline göre düzelt
+]);
+
     }
 
     public static function getRelations(): array
