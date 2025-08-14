@@ -11,7 +11,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-
+use Filament\Tables\Actions\CopyAction;
 // 🔧 EKLENEN DOĞRU USE SATIRLARI
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -114,12 +114,11 @@ class ExportRunResource extends Resource
                     ->url(fn (ExportRun $record) => $record->download_url, true)
                     ->openUrlInNewTab(false),
 
-                Action::make('copy_link')
-                    ->label('Linki Kopyala')
-                    ->icon('heroicon-o-clipboard')
-                    ->copyable()
-                    ->copyableState(fn (ExportRun $record) => $record->public_url)
-                    ->copyMessage('Kopyalandı'),
+CopyAction::make('copy_link')
+    ->label('Linki Kopyala')
+    ->icon('heroicon-o-clipboard')
+    ->copyable(fn (ExportRun $record) => $record->public_url)   // panoya kopyalanacak metin
+    ->successNotificationTitle('Kopyalandı'),
             ]);
     }
 }
