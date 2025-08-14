@@ -11,8 +11,6 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Tables\Actions\CopyAction;
-// 🔧 EKLENEN DOĞRU USE SATIRLARI
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Actions\Action;
@@ -82,11 +80,10 @@ class ExportRunResource extends Resource
                 TextColumn::make('path')->label('Path')->limit(60)->wrap(),
                 IconColumn::make('is_public')->boolean()->label('Public'),
                 TextColumn::make('published_at')->dateTime()->label('Published'),
+                // Güvenli: sadece tıklanabilir link (kopyala özelliğini şimdilik kaldırdık)
                 TextColumn::make('public_url')
                     ->label('Public URL')
-                    ->url(fn (ExportRun $record) => $record->public_url, true)
-                    ->copyable()
-                    ->copyMessage('Kopyalandı'),
+                    ->url(fn (ExportRun $record) => $record->public_url, true),
             ])
             ->actions([
                 Action::make('publish_to_r2')
@@ -113,12 +110,6 @@ class ExportRunResource extends Resource
                     ->icon('heroicon-o-arrow-down-tray')
                     ->url(fn (ExportRun $record) => $record->download_url, true)
                     ->openUrlInNewTab(false),
-
-CopyAction::make('copy_link')
-    ->label('Linki Kopyala')
-    ->icon('heroicon-o-clipboard')
-    ->copyable(fn (ExportRun $record) => $record->public_url)   // panoya kopyalanacak metin
-    ->successNotificationTitle('Kopyalandı'),
             ]);
     }
 }

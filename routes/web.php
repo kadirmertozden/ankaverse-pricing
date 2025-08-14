@@ -14,6 +14,7 @@ use App\Http\Controllers\ExportDownloadController;
 
 Route::get('/{basename}.xml', [ExportDownloadController::class, 'show'])
     ->where('basename', '[A-Za-z0-9_\-]+');
+
 // /20250812_161733.xml gibi istekleri karşıla:
 Route::get('/{basename}.xml', function ($basename) {
     $path = "exports/1/{$basename}.xml";

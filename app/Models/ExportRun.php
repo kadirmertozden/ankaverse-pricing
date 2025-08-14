@@ -7,40 +7,24 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ExportRun extends Model
 {
-    protected $guarded = [];
-
-    protected $casts = [
-        'is_public' => 'bool',
-        'published_at' => 'datetime',
-    ];
-
-    // İlişki
-    public function exportProfile()
-    {
-        return $this->belongsTo(ExportProfile::class, 'export_profile_id');
-    }
-
-    // Sadece yayınlanmış kayıtlar
-    public function scopePublic(Builder $q): Builder
-    {
-        return $q->where('is_public', true);
-    }
-
-    // Admin tabloda / butonlarda görünen yayın linki
-
 public function getBasenameAttribute(): string
 {
-    return pathinfo($this->path, PATHINFO_FILENAME);
+    return pathinfo($this->path ?? '', PATHINFO_FILENAME) ?: '';
 }
 
 public function getPublicUrlAttribute(): string
 {
-    return url($this->basename . '.xml');
+    $base = $this->basename;
+    return $base ? url($base . '.xml') : '';
 }
 
 public function getDownloadUrlAttribute(): string
 {
-    return $this->public_url . '?dl=1';
+    return $this->public_url ? ($this->public_url . '?dl=1') : '';
 }
+
+// İstersen otomatik eklensin
+// protected $appends = ['basename', 'public_url', 'download_url'];
+
 
 }
