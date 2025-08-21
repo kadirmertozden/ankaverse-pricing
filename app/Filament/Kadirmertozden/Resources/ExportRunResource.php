@@ -16,6 +16,8 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\BulkAction;
 use Filament\Tables\Actions\DeleteAction as TableDeleteAction; // Filament kendi DB delete'i
+use Illuminate\Support\Facades\Storage;
+
 
 class ExportRunResource extends Resource
 {
@@ -101,7 +103,11 @@ class ExportRunResource extends Resource
                     ->send();
             }
         }),
-
+Tables\Columns\TextColumn::make('path')
+    ->label('XML URL')
+    ->formatStateUsing(fn ($state) => Storage::disk('public')->url($state))
+    ->url(fn ($record) => Storage::disk('public')->url($record->path))
+    ->openUrlInNewTab(),
     // XML Sil (S3'ten sil + kaydı yayından kaldır)
     Action::make('delete_xml')
         ->label('XML Sil')
