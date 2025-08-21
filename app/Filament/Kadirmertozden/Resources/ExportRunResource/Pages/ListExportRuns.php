@@ -41,7 +41,7 @@ class ListExportRuns extends ListRecords
                     $run = ExportRun::create([
                         'export_profile_id' => 1, // istersen formdan alabilirsin
                         'status'            => 'done',
-                        'path'              => $storedPath,
+                        'path'              => $storedPath, 
                         'publish_token'     => Str::random(32),
                         'is_public'         => true,
                         'published_at'      => now(),
