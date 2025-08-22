@@ -2,14 +2,14 @@
 
 namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
-use App\Filament\Kadirmertozden\Resources\ExportRunResource; // ← önemli
+use App\Filament\Kadirmertozden\Resources\ExportRunResource;
 use App\Models\ExportRun;
 use Filament\Actions;
-use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
-use Illuminate\Support\Facades\Storage;
+use Filament\Forms;
 use Illuminate\Support\Str;
+
 class ListExportRuns extends ListRecords
 {
     protected static string $resource = ExportRunResource::class;
@@ -17,45 +17,50 @@ class ListExportRuns extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\Action::make('xml_yukle')
-                ->label('XML Yükle ve Yayınla')
-                ->icon('heroicon-m-arrow-up-tray')
-                ->modalHeading('XML Dosyası Yükle')
+            Actions\Action::make('uploadXml')
+                ->label('XML Yükle')
+                ->icon('heroicon-o-arrow-up-tray')
                 ->form([
-                    \Filament\Forms\Components\FileUpload::make('xml_file')
+                    Forms\Components\Select::make('export_profile_id')
+                        ->label('Profil')
+                        ->options(\App\Models\ExportProfile::query()->pluck('name', 'id'))
+                        ->required(),
+
+                    Forms\Components\FileUpload::make('path')
                         ->label('XML Dosyası')
-                        ->disk('public')                         // storage/app/public
-                        ->directory('exports/manual')            // storage/app/public/exports/manual
+                        ->disk('public')
+                        ->directory(fn ($get) => 'exports/' . ($get('export_profile_id') ?? 1) . '/manual')
                         ->visibility('public')
-                        ->preserveFilenames()
-                        ->acceptedFileTypes(['application/xml','text/xml'])
-                        ->maxSize(10240)
+                        ->acceptedFileTypes(['application/xml', 'text/xml'])
+                        ->maxSize(4096)
                         ->required(),
                 ])
                 ->action(function (array $data) {
-                    // FileUpload bileşeni dosyayı public diske kaydetti
-                    $storedPath = $data['xml_file']; // örn: exports/manual/myfeed.xml
-                    $publicUrl  = Storage::disk('public')->url($storedPath);
-
-                    // ExportRun kaydı oluştur
-                    $run = ExportRun::create([
-                        'export_profile_id' => 1, // istersen formdan alabilirsin
-                        'status'            => 'done',
-                        'path'              => $storedPath, 
+                    // Güvenli varsayılanlar
+                    $payload = [
+                        'export_profile_id' => (int) ($data['export_profile_id'] ?? 1),
+                        'path'              => $data['path'] ?? null,
+                        'status'            => 'manual',
+                        'product_count'     => 0,
+                        'is_public'         => false,
+                        'published_at'      => null,
                         'publish_token'     => Str::random(32),
-                        'is_public'         => true,
-                        'published_at'      => now(),
-                        'product_count'     => null,
                         'error'             => null,
-                    ]);
+                    ];
+
+                    // Kayıt oluştur
+                    /** @var \App\Models\ExportRun $run */
+                    $run = ExportRun::create($payload);
+
+                    // İstersen otomatik yayınla:
+                    app(\App\Services\ExportPublisher::class)->upload($run);
 
                     Notification::make()
-                        ->title('XML yüklendi ve yayınlandı')
-                        ->body("URL: {$publicUrl}\nRun ID: {$run->id}")
+                        ->title('Yüklendi')
+                        ->body('XML yüklendi ve yayınlandı.')
                         ->success()
                         ->send();
-                })
-                ->successNotification(null), // Biz kendimiz Notification bastık
+                }),
         ];
     }
 }
