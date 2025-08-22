@@ -140,7 +140,7 @@ class ExportPublisher
         return 0;
     }
 
-    /**
+    /** 
      * Projede var olan XML builder’ı kullanarak içerik üretir.
      * Burayı projenizdeki gerçek sınıf/metoda göre gerekirse uyarlayın.
      */

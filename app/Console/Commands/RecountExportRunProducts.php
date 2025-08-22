@@ -22,7 +22,7 @@ class RecountExportRunProducts extends Command
                 return self::FAILURE;
             }
             $count = $publisher->recountFromStorage($run);
-            $this->info("ExportRun #{$run->id}: product_count = {$count}");
+            $this->info("ExportRun #{$run->id}: product_count = {$count}"); 
             return self::SUCCESS;
         }
 

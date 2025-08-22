@@ -4,3 +4,4 @@ protected $commands = [
 	 \App\Console\Commands\ExportBuildCommand::class,
 	 \App\Console\Commands\RecountExportRunProducts::class,
 ];
+ 

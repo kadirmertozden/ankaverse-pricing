@@ -17,7 +17,7 @@ class ExportRun extends Model
         'path',          // Public URL
         'storage_path',  // Fiziksel dosya yolu
         'published_at',
-        'error',
+        'error', 
         'name',
     ];
 
