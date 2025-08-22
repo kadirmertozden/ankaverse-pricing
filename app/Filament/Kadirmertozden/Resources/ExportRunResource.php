@@ -25,14 +25,12 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            // CREATE & EDIT: İsim
             Forms\Components\TextInput::make('name')
                 ->label('İsim')
                 ->placeholder('Örn: HB Günlük Feed (08:00)')
                 ->maxLength(255)
                 ->required(),
 
-            // CREATE & EDIT: XML yükle (modele yazılmaz)
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
                 ->helperText('XML seçin. Ürün sayısı otomatik hesaplanır; linkler kendiliğinden oluşur.')
@@ -42,18 +40,12 @@ class ExportRunResource extends Resource
                 ->preserveFilenames()
                 ->maxSize(10240)
                 ->dehydrated(false)
-                ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun)
                 ->columnSpanFull(),
 
-            // EDIT’te bilgilendirme için token/path göster (salt-okunur)
-            Forms\Components\TextInput::make('publish_token')
-                ->label('Token')
-                ->disabled()
+            // Edit’te bilgilendirme amaçlı
+            Forms\Components\TextInput::make('publish_token')->label('Token')->disabled()
                 ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun),
-
-            Forms\Components\TextInput::make('path')
-                ->label('Public URL')
-                ->disabled()
+            Forms\Components\TextInput::make('path')->label('Public URL')->disabled()
                 ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun),
         ])->columns(1);
     }
@@ -66,11 +58,6 @@ class ExportRunResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('İsim')->searchable(),
                 Tables\Columns\TextColumn::make('publish_token')->label('Token')->copyable()->toggleable(),
                 Tables\Columns\TextColumn::make('product_count')->label('Ürün')->sortable(),
-                Tables\Columns\ToggleColumn::make('is_public')->label('Public')
-                    ->afterStateUpdated(function (ExportRun $record, $state) {
-                        $record->is_public = (bool) $state;
-                        $record->save();
-                    }),
                 Tables\Columns\TextColumn::make('path')
                     ->label('Path')
                     ->url(fn (ExportRun $r) => self::publicUrl($r), true)
@@ -80,27 +67,22 @@ class ExportRunResource extends Resource
                 Tables\Columns\TextColumn::make('published_at')->label('Yayınlanma')->dateTime(),
             ])
             ->actions([
-                // View (her zaman görünür)
                 Tables\Actions\Action::make('view')
                     ->label('View')
                     ->url(fn (ExportRun $r) => self::publicUrl($r))
                     ->openUrlInNewTab(),
 
-                // Download (dosya yoksa buton disable)
                 Tables\Actions\Action::make('download')
                     ->label('Download')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->url(function (ExportRun $r) {
-                        return URL::temporarySignedRoute(
-                            'exports.download',
-                            now()->addMinutes(10),
-                            ['run' => $r->id]
-                        );
-                    })
+                    ->url(fn (ExportRun $r) => URL::temporarySignedRoute(
+                        'exports.download',
+                        now()->addMinutes(10),
+                        ['run' => $r->id]
+                    ))
                     ->openUrlInNewTab()
                     ->disabled(fn (ExportRun $r) => !self::fileExists($r)),
 
-                // XML Düzenle
                 Tables\Actions\Action::make('xmlEdit')
                     ->label('XML Düzenle')
                     ->icon('heroicon-m-pencil-square')
@@ -147,26 +129,21 @@ class ExportRunResource extends Resource
         ];
     }
 
-    /** Helpers */
+    /* Helpers */
     public static function publicUrl(ExportRun $record): string
     {
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         return $base . '/' . $record->publish_token;
     }
-
     public static function fileExists(ExportRun $record): bool
     {
         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
         return $record->storage_path && Storage::disk($disk)->exists($record->storage_path);
     }
-
-    /** Sağlam ürün sayacı (Product/Urun/Item/StockCode fallback) */
     public static function robustCountProducts(string $xml): int
     {
         $xml = trim($xml);
         if ($xml === '') return 0;
-
-        // 1) XMLReader ile Product/Urun/Item
         $tags = ['Product','product','Urun','urun','Item','item'];
         $cnt = 0;
         $reader = new \XMLReader();
@@ -183,20 +160,13 @@ class ExportRunResource extends Resource
             }
             if ($cnt > 0) return $cnt;
         }
-
-        // 2) Regex fallback
         foreach ($tags as $t) {
             if (preg_match_all('/<\s*' . preg_quote($t,'/') . '(\s+[^>]*)?>/i', $xml, $m)) {
                 $cnt += count($m[0]);
             }
         }
         if ($cnt > 0) return $cnt;
-
-        // 3) En son çare: StockCode say
-        if (preg_match_all('/<\s*StockCode(\s+[^>]*)?>/i', $xml, $m2)) {
-            return count($m2[0]);
-        }
-
+        if (preg_match_all('/<\s*StockCode(\s+[^>]*)?>/i', $xml, $m2)) return count($m2[0]);
         return 0;
     }
 }

@@ -10,13 +10,15 @@ use Illuminate\Support\Str;
 
 class ExportController extends Controller
 {
-    // Public token ile XML göster (sadece is_public = true)
+    /**
+     * Public token ile XML göster – artık is_public kontrolü YOK.
+     * Token doğruysa herkes erişir.
+     */
     public function publicShow(string $token)
     {
         $run = ExportRun::query()
             ->where('publish_token', $token)
-            ->where('is_public', true)
-            ->firstOrFail();
+            ->firstOrFail(); // is_public filtresi kaldırıldı
 
         $disk = $run->storage_disk ?? config('filesystems.default', 'public');
 
@@ -27,12 +29,16 @@ class ExportController extends Controller
         $content = Storage::disk($disk)->get($run->storage_path);
 
         return Response::make($content, 200, [
-            'Content-Type' => 'application/xml; charset=utf-8',
-            'Cache-Control' => 'no-cache',
+            'Content-Type'  => 'application/xml; charset=utf-8',
+            'Cache-Control' => 'public, max-age=60',
+            'Content-Disposition' => 'inline; filename="' .
+                (($run->name ? Str::slug($run->name) : $run->publish_token) . '.xml') . '"',
         ]);
     }
 
-    // Admin’den imzalı link ile indir
+    /**
+     * Admin’den imzalı link ile indir (opsiyonel; bırakıyoruz).
+     */
     public function adminDownload(Request $request, ExportRun $run)
     {
         $disk = $run->storage_disk ?? config('filesystems.default', 'public');
