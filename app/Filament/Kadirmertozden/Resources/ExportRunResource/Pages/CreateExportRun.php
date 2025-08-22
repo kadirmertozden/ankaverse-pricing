@@ -49,7 +49,7 @@ class CreateExportRun extends CreateRecord
                 $raw = Storage::disk($disk)->get($tmpPath);
                 $xml = ExportRunResource::sanitizeXml($raw);
                 if (!ExportRunResource::isValidXml($xml)) {
-                    throw new \RuntimeException('Geçersiz XML yüklendi. Lütfen sadece geçerli bir XML dosyası yükleyin.');
+                    throw new \RuntimeException('Geçersiz XML yüklendi. Kaçak & gibi karakterleri düzeltin veya metni <![CDATA[...]]> içine alın.');
                 }
 
                 if (!$record->storage_path) {

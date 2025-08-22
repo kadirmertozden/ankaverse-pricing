@@ -18,19 +18,12 @@ class ExportController extends Controller
 
         $disk = $run->storage_disk ?? config('filesystems.default', 'public');
 
-        // Dosya bulun ve varsa oku
         if (!$run->storage_path || !Storage::disk($disk)->exists($run->storage_path)) {
             abort(404, 'XML dosyası bulunamadı.');
         }
-        $raw = Storage::disk($disk)->get($run->storage_path);
 
-        // SANITIZE: Başındaki BOM/çöp karakterleri at
-        $xml = preg_replace('/^\xEF\xBB\xBF/', '', $raw ?? '');
-        $xml = ltrim($xml);
-        $pos = strpos($xml, '<');
-        if ($pos !== false && $pos > 0) {
-            $xml = substr($xml, $pos);
-        }
+        $raw = Storage::disk($disk)->get($run->storage_path);
+        $xml = $this->sanitizeXmlForOutput($raw);
 
         return Response::make($xml, 200, [
             'Content-Type'        => 'application/xml; charset=utf-8',
@@ -50,5 +43,17 @@ class ExportController extends Controller
         return Storage::disk($disk)->download($run->storage_path, $filename, [
             'Content-Type' => 'application/xml; charset=utf-8',
         ]);
+    }
+
+    /** Çıkışta en azından BOM ve baş çöpü at; kaçak & düzeltme yapma (kaydedeni bozmamak için) */
+    private function sanitizeXmlForOutput(string $xml): string
+    {
+        $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
+        $xml = ltrim($xml);
+        $pos = strpos($xml, '<');
+        if ($pos !== false && $pos > 0) {
+            $xml = substr($xml, $pos);
+        }
+        return $xml;
     }
 }

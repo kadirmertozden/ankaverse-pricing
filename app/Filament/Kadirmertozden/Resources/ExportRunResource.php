@@ -25,7 +25,6 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            // SADECE: İsim + XML Yükle
             Forms\Components\TextInput::make('name')
                 ->label('İsim')
                 ->placeholder('Örn: HB Günlük Feed (08:00)')
@@ -111,7 +110,7 @@ class ExportRunResource extends Resource
                         $raw  = (string) ($data['xml'] ?? '');
                         $xml  = self::sanitizeXml($raw);
                         if (!self::isValidXml($xml)) {
-                            throw new \RuntimeException('Geçersiz XML: Lütfen sadece geçerli bir XML içeriği kaydedin (başta \'<\' ile başlamalı).');
+                            throw new \RuntimeException('Geçersiz XML: Düz (&) işaretleri gibi karakterler otomatik düzeltilmeye çalışıldı ama hâlâ hata var. Lütfen içeriği kontrol edin.');
                         }
 
                         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
@@ -182,24 +181,42 @@ class ExportRunResource extends Resource
         return 0;
     }
 
-    /** Başındaki BOM/çöp karakterleri sil ve ilk '<' dan itibaren kırp */
+    /** Başındaki BOM/çöp karakterleri sil + CDATA dışındaki kaçak & işaretlerini düzelt */
     public static function sanitizeXml(string $xml): string
     {
-        // UTF-8 BOM temizliği
+        // 1) BOM ve baştaki boşluk/çöpleri temizle
         $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
-        // Baştaki/sondaki boşlukları at
-        $xml = trim($xml);
-        // İlk '<' yerini bul ve öncesini at
+        $xml = ltrim($xml);
         $pos = strpos($xml, '<');
         if ($pos !== false && $pos > 0) {
             $xml = substr($xml, $pos);
         }
+
+        // 2) CDATA bloklarını koru, dışındaki "kaçak &" -> &amp;
+        $placeholders = [];
+        $i = 0;
+        $xml = preg_replace_callback('/<!\[CDATA\[(.*?)\]\]>/s', function ($m) use (&$placeholders, &$i) {
+            $key = "__CDATA_PLACEHOLDER_{$i}__";
+            $placeholders[$key] = $m[0];
+            $i++;
+            return $key;
+        }, $xml);
+
+        // &amp; vb. entity olmayan tüm &'leri yakala ve &amp; yap
+        $xml = preg_replace('/&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)/', '&amp;', $xml);
+
+        // CDATA’ları geri koy
+        if (!empty($placeholders)) {
+            $xml = str_replace(array_keys($placeholders), array_values($placeholders), $xml);
+        }
+
         return $xml;
     }
 
     /** Hızlı XML doğrulaması */
     public static function isValidXml(string $xml): bool
     {
+        $xml = trim($xml);
         if ($xml === '' || !str_starts_with(ltrim($xml), '<')) {
             return false;
         }
