@@ -23,50 +23,26 @@ class ExportRunResource extends Resource
 
     public static function form(Form $form): Form
     {
+        // SADECE: İsim + XML Yükle
         return $form->schema([
-            Forms\Components\Grid::make(2)->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('İsim')
-                    ->placeholder('Örn: HB Günlük Feed (08:00)')
-                    ->maxLength(255),
+            Forms\Components\TextInput::make('name')
+                ->label('İsim')
+                ->placeholder('Örn: HB Günlük Feed (08:00)')
+                ->maxLength(255)
+                ->required(),
 
-                Forms\Components\TextInput::make('publish_token')
-                    ->label('Token')
-                    ->maxLength(64)
-                    ->required(),
-
-                Forms\Components\TextInput::make('path')
-                    ->label('Public URL (salt-okunur)')
-                    ->disabled(),
-
-                Forms\Components\TextInput::make('storage_path')
-                    ->label('Dosya Yolu (storage)')
-                    ->maxLength(255),
-
-                Forms\Components\TextInput::make('status')
-                    ->label('Status')
-                    ->maxLength(50),
-
-                Forms\Components\TextInput::make('product_count')
-                    ->label('Product count')
-                    ->numeric(),
-
-                Forms\Components\DateTimePicker::make('published_at')
-                    ->label('Yayınlanma'),
-            ]),
-
-            // Yükleme alanı (modele dehydrate edilmez; create/edit hook'larında ele alınır)
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
-                ->helperText('Bir XML seçersen, token değişmeden içeriği yazacağız ve product_count güncellenecek.')
+                ->helperText('XML dosyasını seçin. Kayıt oluşturulurken ürün sayısı otomatik hesaplanır, public link ve diğer alanlar kendiliğinden dolar.')
                 ->acceptedFileTypes(['application/xml', 'text/xml', '.xml'])
                 ->disk(config('filesystems.default', 'public'))
                 ->directory('export_tmp')
                 ->preserveFilenames()
-                ->maxSize(10240)
-                ->dehydrated(false)
+                ->maxSize(10240) // 10MB
+                ->dehydrated(false) // Modele yazma
+                ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun) // sadece Create'te zorunlu
                 ->columnSpanFull(),
-        ])->columns(2);
+        ])->columns(1);
     }
 
     public static function table(Table $table): Table
@@ -139,6 +115,7 @@ class ExportRunResource extends Resource
         return $base . '/' . $record->publish_token;
     }
 
+    /** Basit ve sağlam <Product> sayacı */
     public static function countProducts(string $xml): int
     {
         $xml = trim($xml);
