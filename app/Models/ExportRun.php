@@ -14,8 +14,8 @@ class ExportRun extends Model
         'product_count',
         'is_public',
         'publish_token',
-        'path',          // Artık public URL tutulur (örn. https://xml.ankaverse.com.tr/TOKEN)
-        'storage_path',  // Fiziksel dosya yolu (örn. exports/1/20250812_161733.xml)
+        'path',          // Public URL
+        'storage_path',  // Fiziksel dosya yolu
         'published_at',
         'error',
         'name',
@@ -26,26 +26,16 @@ class ExportRun extends Model
         'published_at' => 'datetime',
     ];
 
-    /**
-     * Public URL kısayolu (artık path zaten public URL)
-     */
     public function getPublicUrlAttribute(): ?string
     {
         return $this->path;
     }
 
-    /**
-     * Dosyanın yazıldığı disk adı (config/filesystems.php).
-     * Eğer R2/S3 kullanıyorsanız burada karar verebilirsiniz.
-     */
     public function getStorageDiskAttribute(): string
     {
         return config('filesystems.default', 'public');
     }
 
-    /**
-     * (Opsiyonel) İlişkiler…
-     */
     public function exportProfile()
     {
         return $this->belongsTo(\App\Models\ExportProfile::class, 'export_profile_id');
