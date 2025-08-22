@@ -13,7 +13,7 @@ class ListExportRuns extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()->label('XML Yükle'),
+            Actions\CreateAction::make(),
         ];
     }
 }

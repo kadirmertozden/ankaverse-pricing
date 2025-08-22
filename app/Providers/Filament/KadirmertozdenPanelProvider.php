@@ -3,18 +3,14 @@
 namespace App\Providers\Filament;
 
 use Filament\Http\Middleware\Authenticate;
-use Filament\Http\Middleware\AuthenticateSession;
-use Filament\Http\Middleware\DisableBladeIconComponents;
-use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Support\Colors\Color;
-use Filament\Widgets;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
@@ -23,23 +19,23 @@ class KadirmertozdenPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
-            ->default() // Varsayılan panel olarak işaretlendi
             ->id('kadirmertozden')
             ->path('admin')
-            ->login()
-            ->colors([
-                'primary' => Color::Amber,
-            ])
-            ->discoverResources(in: app_path('Filament/Kadirmertozden/Resources'), for: 'App\\Filament\\Kadirmertozden\\Resources')
-            ->discoverPages(in: app_path('Filament/Kadirmertozden/Pages'), for: 'App\\Filament\\Kadirmertozden\\Pages')
-            ->pages([
-                Pages\Dashboard::class,
-            ])
-            ->discoverWidgets(in: app_path('Filament/Kadirmertozden/Widgets'), for: 'App\\Filament\\Kadirmertozden\\Widgets')
-            ->widgets([
-                Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
-            ])
+            ->brandName('Ankaverse Admin')
+            ->favicon(asset('favicon.ico'))
+            ->login() // Filament default login
+            ->discoverResources(
+                in: app_path('Filament/Kadirmertozden/Resources'),
+                for: 'App\\Filament\\Kadirmertozden\\Resources'
+            )
+            ->discoverPages(
+                in: app_path('Filament/Kadirmertozden/Pages'),
+                for: 'App\\Filament\\Kadirmertozden\\Pages'
+            )
+            ->discoverWidgets(
+                in: app_path('Filament/Kadirmertozden/Widgets'),
+                for: 'App\\Filament\\Kadirmertozden\\Widgets'
+            )
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -48,8 +44,6 @@ class KadirmertozdenPanelProvider extends PanelProvider
                 ShareErrorsFromSession::class,
                 VerifyCsrfToken::class,
                 SubstituteBindings::class,
-                DisableBladeIconComponents::class,
-                DispatchServingFilamentEvent::class,
             ])
             ->authMiddleware([
                 Authenticate::class,

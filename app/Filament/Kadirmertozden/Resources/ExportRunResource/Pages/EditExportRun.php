@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Filament\Resources\ExportRunResource\Pages;
+namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
-use App\Filament\Resources\ExportRunResource;
+use App\Filament\Kadirmertozden\Resources\ExportRunResource;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Storage;
 
@@ -12,16 +12,13 @@ class EditExportRun extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Public URL'yi publish_token’dan her kayıtta senkronla
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         $data['path'] = $base . '/' . $data['publish_token'];
-
         return $data;
     }
 
     protected function afterSave(): void
     {
-        // Edit ekranında tekrar dosya yüklenmişse, üzerine yaz
         $record = $this->record;
         $disk   = $record->storage_disk ?? config('filesystems.default', 'public');
 

@@ -1,16 +1,17 @@
 <?php
 
-namespace App\Filament\Resources;
+namespace App\Filament\Kadirmertozden\Resources;
 
-use App\Filament\Resources\ExportRunResource\Pages;
+use App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 use App\Models\ExportRun;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
 
-class ExportRunResource extends \Filament\Resources\Resource
+class ExportRunResource extends Resource
 {
     protected static ?string $model = ExportRun::class;
 
@@ -18,6 +19,7 @@ class ExportRunResource extends \Filament\Resources\Resource
     protected static ?string $navigationGroup = 'XML Exports';
     protected static ?string $modelLabel = 'Export Run';
     protected static ?string $pluralModelLabel = 'Export Runs';
+    protected static ?int $navigationSort = 10;
 
     public static function form(Form $form): Form
     {
@@ -35,8 +37,7 @@ class ExportRunResource extends \Filament\Resources\Resource
 
                 Forms\Components\TextInput::make('path')
                     ->label('Public URL (salt-okunur)')
-                    ->disabled()
-                    ->columnSpan(1),
+                    ->disabled(),
 
                 Forms\Components\TextInput::make('storage_path')
                     ->label('Dosya Yolu (storage)')
@@ -54,15 +55,15 @@ class ExportRunResource extends \Filament\Resources\Resource
                     ->label('Yayınlanma'),
             ]),
 
-            // CREATE/EDIT için görünen yükleme alanı (modele yazılmaz)
+            // Yükleme alanı (modele dehydrate edilmez; create/edit hook'larında ele alınır)
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
-                ->helperText('Bir XML dosyası seçerseniz, token değişmeden içeriği yazacağız.')
+                ->helperText('Bir XML seçersen, token değişmeden içeriği yazacağız ve product_count güncellenecek.')
                 ->acceptedFileTypes(['application/xml', 'text/xml', '.xml'])
                 ->disk(config('filesystems.default', 'public'))
                 ->directory('export_tmp')
                 ->preserveFilenames()
-                ->maxSize(10240) // 10MB
+                ->maxSize(10240)
                 ->dehydrated(false)
                 ->columnSpanFull(),
         ])->columns(2);
@@ -103,17 +104,18 @@ class ExportRunResource extends \Filament\Resources\Resource
                             }),
                     ])
                     ->action(function (ExportRun $record, array $data) {
-                        // storage_path yoksa ilk kez ver
                         if (!$record->storage_path) {
                             $record->storage_path = 'exports/' . $record->id . '/feed.xml';
                             $record->save();
                         }
 
-                        $xml = (string) $data['xml'];
+                        $xml  = (string) $data['xml'];
                         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
 
                         Storage::disk($disk)->put($record->storage_path, $xml);
                         $record->product_count = self::countProducts($xml);
+                        $record->status = 'done';
+                        $record->published_at = now();
                         $record->save();
                     }),
 
@@ -137,7 +139,6 @@ class ExportRunResource extends \Filament\Resources\Resource
         return $base . '/' . $record->publish_token;
     }
 
-    /** Basit ve sağlam <Product> sayacı */
     public static function countProducts(string $xml): int
     {
         $xml = trim($xml);
