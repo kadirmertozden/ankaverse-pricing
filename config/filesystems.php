@@ -2,88 +2,49 @@
 
 return [
 
-    /*
-    |--------------------------------------------------------------------------
-    | Default Filesystem Disk
-    |--------------------------------------------------------------------------
-    |
-    | Here you may specify the default filesystem disk that should be used
-    | by the framework. The "local" disk, as well as a variety of cloud
-    | based disks are available to your application for file storage.
-    |
-    */
-
-    'default' => env('FILESYSTEM_DISK', 'local'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Filesystem Disks
-    |--------------------------------------------------------------------------
-    |
-    | Below you may configure as many filesystem disks as necessary, and you
-    | may even configure multiple disks for the same driver. Examples for
-    | most supported storage drivers are configured here for reference.
-    |
-    | Supported drivers: "local", "ftp", "sftp", "s3"
-    |
-    */
+    'default' => env('FILESYSTEM_DISK', 'public'),
 
     'disks' => [
 
-    'local' => [
-        'driver' => 'local',
-        'root' => storage_path('app/private'),
-        'serve' => true,
-        'throw' => false,
-        'report' => false,
+        'local' => [
+            'driver' => 'local',
+            'root'   => storage_path('app'),
+            'throw'  => false,
+        ],
+
+        'public' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/public'),
+            'url'        => env('APP_URL') . '/storage',
+            'visibility' => 'public',
+            'throw'      => false,
+        ],
+
+        // Cloudflare R2 / S3 uyumlu
+        's3' => [
+            'driver'                  => 's3',
+            'key'                     => env('AWS_ACCESS_KEY_ID'),
+            'secret'                  => env('AWS_SECRET_ACCESS_KEY'),
+            'region'                  => env('AWS_DEFAULT_REGION', 'auto'),
+            'bucket'                  => env('AWS_BUCKET'),
+            // R2 için endpoint zorunlu
+            'endpoint'                => env('AWS_ENDPOINT'), // örn: https://<account-id>.r2.cloudflarestorage.com
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
+            'throw'                   => false,
+            // CDN veya Custom Domain kullanıyorsan (opsiyonel):
+            // 'url'                  => env('AWS_URL'),
+            'visibility'              => 'public',
+        ],
+
+        // (İstersen exports diye alias bir disk tanımlayabilirsin; şart değil)
+        // 'exports' => [
+        //     'driver'     => 'local',
+        //     'root'       => storage_path('app/public/exports'),
+        //     'url'        => env('APP_URL') . '/storage/exports',
+        //     'visibility' => 'public',
+        //     'throw'      => false,
+        // ],
     ],
-
-    'public' => [
-        'driver' => 'local',
-        'root' => storage_path('app/public'),
-        'url' => env('APP_URL').'/storage',
-        'visibility' => 'public',
-        'throw' => false,
-        'report' => false, 
-    ],
-	
-'s3' => [
-    'driver' => 's3',
-    'key' => env('AWS_ACCESS_KEY_ID'),
-    'secret' => env('AWS_SECRET_ACCESS_KEY'),
-    'region' => env('AWS_DEFAULT_REGION', 'auto'),
-    'bucket' => env('AWS_BUCKET') ?: 'ankaverse-exports', // <— fallback
-    'endpoint' => env('AWS_ENDPOINT') ?: 'https://367be3a2035528943240074d0096e0cd.r2.cloudflarestorage.com',
-    'use_path_style_endpoint' => (bool) env('AWS_USE_PATH_STYLE_ENDPOINT', true),
-    'throw' => true,
-],
-
-    // 👇 exports DİSKİ BURADA OLMALI
-	'exports' => [
-    'driver' => 's3',
-    'key'    => env('AWS_ACCESS_KEY_ID'),
-    'secret' => env('AWS_SECRET_ACCESS_KEY'),
-    'region' => env('AWS_DEFAULT_REGION', 'auto'),
-    'bucket' => env('EXPORTS_BUCKET', 'ankaverse-exports'),
-    'endpoint' => env('AWS_ENDPOINT'),
-    'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-    'visibility' => env('EXPORTS_PUBLIC', false) ? 'public' : 'private',
-    'throw' => false, 
-	],
-
-],
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Symbolic Links
-    |--------------------------------------------------------------------------
-    |
-    | Here you may configure the symbolic links that will be created when the
-    | `storage:link` Artisan command is executed. The array keys should be
-    | the locations of the links and the values should be their targets.
-    |
-    */
 
     'links' => [
         public_path('storage') => storage_path('app/public'),
