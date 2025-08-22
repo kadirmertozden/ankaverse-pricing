@@ -54,26 +54,15 @@ Route::get('/__debug/exports/{folder}/{any}', function ($folder, $any) {
 // =====================
 //  Exports: PUBLIC API
 // ===================== 
-Route::get('/{token}', function (string $token) {
-    $run = ExportRun::query()
-        ->where('publish_token', $token)
-        ->where('is_public', true)
-        ->firstOrFail();
+// Public token route: https://xml.ankaverse.com.tr/TOKEN
+Route::get('/{token}', [ExportController::class, 'publicShow'])
+    ->where('token', '[A-Z0-9]{26}')
+    ->name('exports.public');
 
-    $disk = $run->storage_disk ?? config('filesystems.default', 'public');
-
-    abort_unless($run->storage_path && Storage::disk($disk)->exists($run->storage_path), 404);
-
-    $content = Storage::disk($disk)->get($run->storage_path);
-
-    return Response::make($content, 200, [
-        'Content-Type' => 'application/xml; charset=utf-8',
-        'Cache-Control' => 'no-cache',
-    ]);
-})
-// Token karakter setini sınırlayalım (ör: 10+ uzunluk alfa-numerik)
-->where('token', '[A-Za-z0-9]{10,}')
-->name('public.xml');
+// Admin indirme (imzalı link ile korunan)
+Route::get('/admin/exports/{run}/download', [ExportController::class, 'adminDownload'])
+    ->middleware(['web', 'signed'])
+    ->name('exports.download');
 // 1) Token ile güvenli yayın (önerilir)
 Route::get('/exports/t/{token}', [ExportController::class, 'showByToken'])
     ->name('exports.show');

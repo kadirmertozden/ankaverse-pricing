@@ -10,6 +10,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 
 class ExportRunResource extends Resource
 {
@@ -33,14 +34,13 @@ class ExportRunResource extends Resource
 
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
-                ->helperText('XML dosyasını seçin. Kayıt oluşturulunca ürün sayısı hesaplansın, public link ve diğer alanlar otomatik dolsun.')
+                ->helperText('XML dosyasını seçin. Kayıtta ürün sayısı hesaplanır, public link ve diğer alanlar otomatik doldurulur.')
                 ->acceptedFileTypes(['application/xml', 'text/xml', '.xml'])
                 ->disk(config('filesystems.default', 'public'))
                 ->directory('export_tmp')
                 ->preserveFilenames()
-                ->maxSize(10240) // 10MB
-                ->dehydrated(false) // modeleyi doldurma; afterCreate içinde alacağız
-                ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun)
+                ->maxSize(10240)
+                ->dehydrated(false)
                 ->columnSpanFull(),
         ])->columns(1);
     }
@@ -53,15 +53,36 @@ class ExportRunResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('İsim')->searchable(),
                 Tables\Columns\TextColumn::make('publish_token')->label('Token')->copyable(),
                 Tables\Columns\TextColumn::make('product_count')->label('Ürün')->sortable(),
-                Tables\Columns\IconColumn::make('is_public')->label('Public')->boolean(),
+                Tables\Columns\ToggleColumn::make('is_public')->label('Public')
+                    ->afterStateUpdated(function (ExportRun $record, $state) {
+                        $record->is_public = (bool) $state;
+                        $record->save();
+                    }),
                 Tables\Columns\TextColumn::make('published_at')->label('Yayınlanma')->dateTime(),
             ])
             ->actions([
+                // View: public URL'i yeni sekmede aç (dosya varsa)
                 Tables\Actions\Action::make('view')
                     ->label('View')
-                    ->url(fn (ExportRun $record) => self::publicUrl($record))
-                    ->openUrlInNewTab(),
+                    ->url(fn (ExportRun $r) => self::publicUrl($r))
+                    ->openUrlInNewTab()
+                    ->visible(fn (ExportRun $r) => self::fileExists($r)),
 
+                // Download: imzalı link ile indirme
+                Tables\Actions\Action::make('download')
+                    ->label('Download')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->url(function (ExportRun $r) {
+                        return URL::temporarySignedRoute(
+                            'exports.download',
+                            now()->addMinutes(10),
+                            ['run' => $r->id]
+                        );
+                    })
+                    ->openUrlInNewTab()
+                    ->visible(fn (ExportRun $r) => self::fileExists($r)),
+
+                // XML Düzenle (inline)
                 Tables\Actions\Action::make('xmlEdit')
                     ->label('XML Düzenle')
                     ->icon('heroicon-m-pencil-square')
@@ -109,10 +130,17 @@ class ExportRunResource extends Resource
         ];
     }
 
+    /** Yardımcılar */
     public static function publicUrl(ExportRun $record): string
     {
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         return $base . '/' . $record->publish_token;
+    }
+
+    public static function fileExists(ExportRun $record): bool
+    {
+        $disk = $record->storage_disk ?? config('filesystems.default', 'public');
+        return $record->storage_path && Storage::disk($disk)->exists($record->storage_path);
     }
 
     /** Basit ve sağlam <Product> sayacı */

@@ -3,6 +3,7 @@
 namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
 use App\Filament\Kadirmertozden\Resources\ExportRunResource;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Storage;
 
@@ -12,16 +13,14 @@ class EditExportRun extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // publish_token değişmemeli; yine de public URL'i senkronla
+        // public URL senkron
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
-        if (!empty($this->record->publish_token)) {
-            $data['publish_token'] = $this->record->publish_token;
-        }
+        $data['publish_token'] = $this->record->publish_token; // değiştirmiyoruz
         $data['path'] = $base . '/' . $data['publish_token'];
 
-        unset($data['xml_upload']);
+        unset($data['xml_upload']); // modele gitmesin
 
-        // export_profile_id mevcut kayıttan kalsın
+        // export_profile_id mevcut kalsın
         if (!empty($this->record->export_profile_id)) {
             $data['export_profile_id'] = $this->record->export_profile_id;
         }
@@ -31,27 +30,36 @@ class EditExportRun extends EditRecord
 
     protected function afterSave(): void
     {
-        // Edit ekranında XML tekrar yüklenmişse, üzerine yaz (opsiyonel)
         $record = $this->record;
         $disk   = $record->storage_disk ?? config('filesystems.default', 'public');
 
         $state   = $this->form->getRawState();
-        $tmpPath = $state['xml_upload'] ?? null;
+        $tmp     = $state['xml_upload'] ?? null;
+        $tmpPath = is_array($tmp) ? ($tmp[0] ?? null) : $tmp;
 
-        if ($tmpPath) {
-            $xml = Storage::disk($disk)->get($tmpPath);
+        try {
+            if ($tmpPath) {
+                $xml = Storage::disk($disk)->get($tmpPath);
 
-            if (!$record->storage_path) {
-                $record->storage_path = 'exports/' . $record->id . '/feed.xml';
+                if (!$record->storage_path) {
+                    $record->storage_path = 'exports/' . $record->id . '/feed.xml';
+                }
+
+                Storage::disk($disk)->put($record->storage_path, $xml);
+
+                $record->product_count = ExportRunResource::countProducts($xml);
+                $record->published_at  = now();
+                $record->status        = 'done';
+                $record->save();
+
+                try { Storage::disk($disk)->delete($tmpPath); } catch (\Throwable $e) {}
             }
-
-            Storage::disk($disk)->put($record->storage_path, $xml);
-            $record->product_count = ExportRunResource::countProducts($xml);
-            $record->published_at  = now();
-            $record->status        = 'done';
-            $record->save();
-
-            try { Storage::disk($disk)->delete($tmpPath); } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('XML işlenirken hata oluştu')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
         }
     }
 }
