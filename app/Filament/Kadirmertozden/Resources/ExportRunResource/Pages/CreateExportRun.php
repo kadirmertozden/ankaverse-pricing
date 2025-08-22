@@ -1,14 +1,11 @@
 <?php
 
-namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
+namespace App\Filament\Resources\ExportRunResource\Pages;
 
-use App\Filament\Kadirmertozden\Resources\ExportRunResource;
+use App\Filament\Resources\ExportRunResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-
-// 👇 Bunu ekledik: varsayılan profil ID'sini bulmak için
-use App\Models\ExportProfile;
 
 class CreateExportRun extends CreateRecord
 {
@@ -16,41 +13,51 @@ class CreateExportRun extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $tmpPath = $data['upload_file'] ?? null;
-        if (!$tmpPath) {
-            return $data;
+        // Token zorunlu; yoksa üret
+        if (empty($data['publish_token'])) {
+            $data['publish_token'] = Str::upper(Str::random(26));
         }
 
-        // 1) Varsayılan ExportProfile ID'sini bul
-        // Önce aktif olanı, yoksa ilkini, o da yoksa 1'i dene
-        $profileId =
-            ExportProfile::where('is_active', true)->value('id')
-            ?? ExportProfile::value('id')
-            ?? 1;
+        // Public URL'yi token'dan üret
+        $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
+        $data['path'] = $base . '/' . $data['publish_token'];
 
-        // 2) Yayın token'ı üret
-        $token = Str::upper(Str::random(26));
-
-        // 3) Hedef path: exports/{profile}/manual/{TOKEN}.xml (public disk)
-        $destPath = "exports/{$profileId}/manual/{$token}.xml";
-
-        // 4) Dosyayı tmp'den hedefe taşı
-        if (Storage::disk('public')->exists($tmpPath)) {
-            Storage::disk('public')->makeDirectory("exports/{$profileId}/manual");
-            Storage::disk('public')->move($tmpPath, $destPath);
-        }
-
-        // 5) Model alanlarını doldur
-        $data = [
-            'export_profile_id' => $profileId,   // 👈 ZORUNLU
-            'publish_token'     => $token,
-            'path'              => $destPath,
-            'status'            => 'done',
-            'is_public'         => true,
-            'published_at'      => now(),
-            'product_count'     => 0,
-        ];
+        // Varsayılanlar
+        $data['status'] = $data['status'] ?? 'pending';
+        $data['is_public'] = true;
 
         return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        $record = $this->record;
+        $disk   = $record->storage_disk ?? config('filesystems.default', 'public');
+
+        // Form state içinden yüklenen dosyanın yolu
+        $state = $this->form->getRawState();
+        $tmpPath = $state['xml_upload'] ?? null; // örn: export_tmp/abc.xml
+
+        if ($tmpPath) {
+            // XML içeriğini oku
+            $xml = Storage::disk($disk)->get($tmpPath);
+
+            // İlk storage_path yoksa ver
+            if (!$record->storage_path) {
+                $record->storage_path = 'exports/' . $record->id . '/feed.xml';
+            }
+
+            // Dosyayı kalıcı yerine yaz
+            Storage::disk($disk)->put($record->storage_path, $xml);
+
+            // Ürün sayısı
+            $record->product_count = ExportRunResource::countProducts($xml);
+
+            // Temizle ve kaydet
+            try { Storage::disk($disk)->delete($tmpPath); } catch (\Throwable $e) {}
+            $record->status = 'done';
+            $record->published_at = now();
+            $record->save();
+        }
     }
 }
