@@ -16,6 +16,7 @@ class CreateExportRun extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        // Profil: aktif ilk ya da ilk profil
         $profile = ExportProfile::query()->where('is_active', true)->first()
                  ?: ExportProfile::query()->first();
         if (!$profile) {
@@ -23,10 +24,14 @@ class CreateExportRun extends CreateRecord
         }
         $data['export_profile_id'] = $profile->id;
 
+        // Token (benzersiz)
         $data['publish_token'] = $this->generateUniqueToken();
+
+        // Public URL
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         $data['path'] = $base . '/' . $data['publish_token'];
 
+        // Varsayılanlar
         $data['status']    = 'pending';
         $data['is_public'] = true;
 
@@ -38,7 +43,7 @@ class CreateExportRun extends CreateRecord
     {
         /** @var ExportRun $record */
         $record = $this->record;
-        $disk   = $record->storage_disk ?? config('filesystems.default', 'public');
+        $disk   = 'public';
 
         $state   = $this->form->getRawState();
         $tmp     = $state['xml_upload'] ?? null;
@@ -49,13 +54,11 @@ class CreateExportRun extends CreateRecord
                 $raw = Storage::disk($disk)->get($tmpPath);
                 $xml = ExportRunResource::sanitizeXml($raw);
                 if (!ExportRunResource::isValidXml($xml)) {
-                    throw new \RuntimeException('Geçersiz XML yüklendi. Kaçak & gibi karakterleri düzeltin veya metni <![CDATA[...]]> içine alın.');
+                    throw new \RuntimeException('Geçersiz XML yüklendi. Kaçak & vb. karakterleri düzeltin veya CDATA kullanın.');
                 }
 
-                if (!$record->storage_path) {
-                    $record->storage_path = 'exports/' . $record->id . '/feed.xml';
-                }
-
+                // Yol: exports/{TOKEN}.xml (tek kural)
+                $record->storage_path = 'exports/' . $record->publish_token . '.xml';
                 Storage::disk($disk)->put($record->storage_path, $xml);
 
                 $record->product_count = ExportRunResource::robustCountProducts($xml);

@@ -11,9 +11,9 @@ use Illuminate\Support\Str;
 class ExportController extends Controller
 {
     /**
-     * Public token ile XML göster – HERKESE AÇIK.
-     * Her zaman sadece ilgili kaydın kendi storage_path'i kullanılır.
-     * Dosya yoksa 404; başka kaydın dosyasına ASLA yönlendirme/otomatik tamir yapılmaz.
+     * Token ile XML göster – HERKESE AÇIK.
+     * Sadece ilgili kaydın kendi storage_path'i kullanılır.
+     * Dosya yoksa 404; başka kaydın dosyasına yönlendirme yapılmaz.
      */
     public function publicShow(string $token)
     {
@@ -21,15 +21,18 @@ class ExportController extends Controller
             ->where('publish_token', $token)
             ->firstOrFail();
 
-        $disk = $run->storage_disk ?? config('filesystems.default', 'public');
+        $disk = 'public'; // sabit disk
 
-        if (!$run->storage_path || !Storage::disk($disk)->exists($run->storage_path)) {
+        // storage_path yoksa varsayılan kuralı uygula
+        $storagePath = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
+
+        if (!Storage::disk($disk)->exists($storagePath)) {
             abort(404, 'XML dosyası bulunamadı.');
         }
 
-        $raw = Storage::disk($disk)->get($run->storage_path);
+        $raw = Storage::disk($disk)->get($storagePath);
 
-        // Başındaki BOM/çöp karakterleri at (çıktıyı bozmamak için hafif sanitize)
+        // Hafif sanitize: BOM/baş çöpü at
         $xml = preg_replace('/^\xEF\xBB\xBF/', '', $raw ?? '');
         $xml = ltrim($xml);
         $pos = strpos($xml, '<');
@@ -39,7 +42,7 @@ class ExportController extends Controller
 
         return Response::make($xml, 200, [
             'Content-Type'        => 'application/xml; charset=utf-8',
-            // Ara katman/NGINX/CDN cache karışıklığı yaşamamak için:
+            // CDN/Tarayıcı cache karışmasın:
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
             'Pragma'              => 'no-cache',
             'Expires'             => '0',
@@ -53,17 +56,17 @@ class ExportController extends Controller
      */
     public function adminDownload(Request $request, ExportRun $run)
     {
-        $disk = $run->storage_disk ?? config('filesystems.default', 'public');
+        $disk = 'public';
 
-        if (!$run->storage_path || !Storage::disk($disk)->exists($run->storage_path)) {
+        $storagePath = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
+        if (!Storage::disk($disk)->exists($storagePath)) {
             abort(404, 'XML dosyası bulunamadı.');
         }
 
         $filename = ($run->name ? Str::slug($run->name) : $run->publish_token) . '.xml';
 
-        return Storage::disk($disk)->download($run->storage_path, $filename, [
+        return Storage::disk($disk)->download($storagePath, $filename, [
             'Content-Type' => 'application/xml; charset=utf-8',
-            // İndirmenin cache edilmesinde sakınca yok; bırakıyoruz.
         ]);
     }
 }

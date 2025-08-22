@@ -25,7 +25,7 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            // CREATE & EDIT: yalnızca İSİM ve XML YÜKLE kalsın
+            // SADECE: İsim + XML Yükle
             Forms\Components\TextInput::make('name')
                 ->label('İsim')
                 ->placeholder('Örn: HB Günlük Feed (08:00)')
@@ -36,7 +36,7 @@ class ExportRunResource extends Resource
                 ->label('XML Yükle')
                 ->helperText('XML seçin. Ürün sayısı otomatik hesaplanır; linkler kendiliğinden oluşur.')
                 ->acceptedFileTypes(['application/xml', 'text/xml', '.xml'])
-                ->disk(config('filesystems.default', 'public'))
+                ->disk('public')
                 ->directory('export_tmp')
                 ->preserveFilenames()
                 ->maxSize(10240)
@@ -91,38 +91,41 @@ class ExportRunResource extends Resource
                     ->openUrlInNewTab()
                     ->disabled(fn (ExportRun $r) => !self::fileExists($r)),
 
-                // XML Düzenle (sanitize + validate içerik)
+                // XML Düzenle (sanitize + validate + boş kaydı engelle)
                 Tables\Actions\Action::make('xmlEdit')
                     ->label('XML Düzenle')
                     ->icon('heroicon-m-pencil-square')
+                    ->modalWidth('7xl')
                     ->form([
                         Forms\Components\Textarea::make('xml')
                             ->rows(22)
                             ->required()
                             ->afterStateHydrated(function (Forms\Components\Textarea $component, ?ExportRun $record) {
                                 if (!$record) return;
-                                $disk = $record->storage_disk ?? config('filesystems.default', 'public');
-                                if ($record->storage_path && Storage::disk($disk)->exists($record->storage_path)) {
-                                    $component->state(Storage::disk($disk)->get($record->storage_path));
+                                $disk = 'public';
+                                $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
+                                if (Storage::disk($disk)->exists($path)) {
+                                    $component->state(Storage::disk($disk)->get($path));
                                 } else {
                                     $component->state('');
                                 }
                             }),
                     ])
                     ->action(function (ExportRun $record, array $data) {
-                        if (!$record->storage_path) {
-                            $record->storage_path = 'exports/' . $record->id . '/feed.xml';
-                            $record->save();
+                        $raw = (string) ($data['xml'] ?? '');
+                        $xml = self::sanitizeXml($raw);
+
+                        if ($xml === '' || !self::isValidXml($xml)) {
+                            throw new \RuntimeException('Geçersiz veya boş XML. Lütfen geçerli bir XML girin.');
                         }
 
-                        $raw  = (string) ($data['xml'] ?? '');
-                        $xml  = self::sanitizeXml($raw);
-                        if (!self::isValidXml($xml)) {
-                            throw new \RuntimeException('Geçersiz XML: lütfen içeriği kontrol edin (kaçak & vb.).');
-                        }
+                        $disk = 'public';
 
-                        $disk = $record->storage_disk ?? config('filesystems.default', 'public');
-                        Storage::disk($disk)->put($record->storage_path, $xml);
+                        // Depo yolu: exports/{TOKEN}.xml
+                        $desired = 'exports/' . $record->publish_token . '.xml';
+                        $record->storage_path = $desired;
+
+                        Storage::disk($disk)->put($desired, $xml);
 
                         $record->product_count = self::robustCountProducts($xml);
                         $record->status = 'done';
@@ -152,8 +155,9 @@ class ExportRunResource extends Resource
     }
     public static function fileExists(ExportRun $record): bool
     {
-        $disk = $record->storage_disk ?? config('filesystems.default', 'public');
-        return $record->storage_path && Storage::disk($disk)->exists($record->storage_path);
+        $disk = 'public';
+        $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
+        return Storage::disk($disk)->exists($path);
     }
 
     // --- XML yardımcıları (sanitize + validate + count) ---
