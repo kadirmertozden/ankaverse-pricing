@@ -3,112 +3,92 @@
 namespace App\Services;
 
 use App\Models\ExportRun;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class ExportPublisher
 {
-    /** Public disk: storage/app/public → /storage/... */
-    protected string $publicDisk = 'public';
-
-    /** S3/R2 disk adı (yoksa null) */
-    protected ?string $s3Disk;
-
-    public function __construct()
+    /**
+     * ExportRun için XML üretir/yazar, storage_path'e kaydeder ve
+     * path'i public URL (token link) olarak günceller.
+     */
+    public function upload(ExportRun $run): ExportRun
     {
-        $this->s3Disk = config('filesystems.disks.s3') ? 's3' : null;
+        // XML içeriğini üret
+        $contents = $this->buildXmlForRun($run);
+
+        // Hangi diske yazılacak?
+        $disk = $run->storage_disk ?? config('filesystems.default', 'public');
+
+        // Fiziksel yazım yolu (yoksa yeni oluştur)
+        $storagePath = $run->storage_path ?: sprintf(
+            'exports/%d/%s.xml',
+            $run->export_profile_id ?? 0,
+            now()->format('Ymd_His')
+        );
+
+        // Yaz
+        Storage::disk($disk)->put($storagePath, $contents);
+
+        // Public URL: {XML_PUBLIC_BASE}/{token}
+        $publicBase = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
+        $publicUrl  = $publicBase . '/' . $run->publish_token;
+
+        // Kayıt güncelle
+        $run->fill([
+            'storage_path' => $storagePath,
+            'path'         => $publicUrl,   // Path artık tam public link
+            'status'       => 'done',
+            'published_at' => now(),
+            'is_public'    => true,
+        ])->save();
+
+        return $run->refresh();
     }
 
     /**
-     * Kayıttaki XML'i yayınlar / yeniler.
-     * - Public diskte mevcutsa (Filament FileUpload ile geldi), yolunu korur.
-     * - S3/R2 yapılandırılmışsa aynı path ile R2'ye de yükler.
-     * - Kayıt is_public=true + published_at=now ile güncellenir.
+     * Var olan XML dosyasını token değişmeden, aynı storage_path'e üzerine yazar.
      */
-    public function upload(ExportRun $run): void
+    public function overwriteXml(ExportRun $run, string $xml): void
     {
-        // 1) Hedef path'i belirle
-        $path = $run->path;
-        if (blank($path)) {
-            $basename = 'manual-' . now()->format('Ymd-His') . '-' . Str::random(6) . '.xml';
-            $path = 'exports/' . ($run->export_profile_id ?? 1) . '/manual/' . $basename;
+        $disk = $run->storage_disk ?? config('filesystems.default', 'public');
+
+        if (!$run->storage_path) {
+            throw new \RuntimeException('storage_path boş: overwrite yapılamaz.');
         }
 
-        // 2) Kaynak içeriği al
-        // Tercih: public diskte dosya mevcutsa onu esas al
-        $sourceDisk = $this->publicDisk;
-        if (!Storage::disk($sourceDisk)->exists($path)) {
-            // public'te yoksa, local 'path' farklı bir yerde olabilir: o zaman public'e kopyala
-            // (örn. 'local' diske düşmüşse)
-            if (Storage::disk('local')->exists($path)) {
-                $contents = Storage::disk('local')->get($path);
-                Storage::disk($this->publicDisk)->put($path, $contents, 'public');
-            } else {
-                // Kaynak yoksa hata ver, logla ve çık
-                Log::warning('ExportPublisher: kaynak xml bulunamadı', ['path' => $path]);
-                throw new \RuntimeException('XML kaynağı bulunamadı: ' . $path);
+        Storage::disk($disk)->put($run->storage_path, $xml);
+    }
+
+    /**
+     * Projenizdeki mevcut builder ile uyumlu çalışmaya çalışır.
+     * buildForRun / buildToString / build gibi yaygın isimleri dener.
+     */
+    protected function buildXmlForRun(ExportRun $run): string
+    {
+        // Eğer kendi XmlExportBuilder servisiniz varsa onu tercih edin:
+        if (class_exists(\App\Services\XmlExportBuilder::class)) {
+            $builder = app(\App\Services\XmlExportBuilder::class);
+
+            // Yaygın imzaları sırasıyla dene:
+            if (method_exists($builder, 'buildForRun')) {
+                // Örn: buildForRun(ExportRun $run): string
+                return $builder->buildForRun($run);
+            }
+
+            if (method_exists($builder, 'buildToString')) {
+                // Örn: buildToString($profile, ?ExportRun $run = null): string
+                $profile = method_exists($run, 'exportProfile') ? $run->exportProfile : null;
+                return $builder->buildToString($profile, $run);
+            }
+
+            if (method_exists($builder, 'build')) {
+                // Örn: build($profile): string
+                $profile = method_exists($run, 'exportProfile') ? $run->exportProfile : null;
+                return $builder->build($profile);
             }
         }
 
-        // 3) S3/R2 varsa mirror et
-        if ($this->s3Disk) {
-            $stream = Storage::disk($this->publicDisk)->readStream($path);
-            if ($stream === false) {
-                throw new \RuntimeException('Public diskten stream alınamadı: ' . $path);
-            }
-            Storage::disk($this->s3Disk)->put($path, $stream, ['visibility' => 'public']);
-        }
-
-        // 4) Kaydı yayınlandı olarak işaretle
-        $run->path = $path;
-        $run->is_public = true;
-        $run->published_at = now();
-        $run->error = null;
-        if (blank($run->publish_token)) {
-            $run->publish_token = Str::random(32);
-        }
-        $run->save();
-    }
-
-    /**
-     * Yayından kaldırır:
-     * - S3/R2 varsa oradan siler,
-     * - (İsteğe bağlı) public'teki kopyayı da silebilirsin; burada dosyayı bırakıyoruz,
-     * - Kaydı is_public=false yapar.
-     */
-    public function delete(ExportRun $run): void
-    {
-        $path = $run->path;
-
-        if ($this->s3Disk && !blank($path) && Storage::disk($this->s3Disk)->exists($path)) {
-            Storage::disk($this->s3Disk)->delete($path);
-        }
-
-        // Public dosyayı korumak istiyorsan aşağıyı YORUMDA bırak.
-        // Tamamen silmek istersen yorumdan çıkar:
-        // if (!blank($path) && Storage::disk($this->publicDisk)->exists($path)) {
-        //     Storage::disk($this->publicDisk)->delete($path);
-        // }
-
-        $run->is_public = false;
-        $run->published_at = null;
-        $run->save();
-    }
-
-    /**
-     * (Opsiyonel) R2/S3 tarafında public URL üretmek istersen kullan.
-     * Cloudflare R2 için genelde CDN domain’i .env ile verilir.
-     */
-    public function publicUrl(string $path): string
-    {
-        // Öncelik: S3/R2 CDN domain
-        $cdn = rtrim((string) env('CDN_PUBLIC_BASE', ''), '/');
-        if ($this->s3Disk && $cdn !== '') {
-            return $cdn . '/' . ltrim($path, '/');
-        }
-
-        // Public disk URL’si (storage symlink)
-        return Storage::disk($this->publicDisk)->url($path);
+        // Buraya düşüyorsa projenizdeki builder imzasını bize haber verin:
+        throw new \RuntimeException('XmlExportBuilder bulunamadı veya beklenen metodlara sahip değil.');
     }
 }

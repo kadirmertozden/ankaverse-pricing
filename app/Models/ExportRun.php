@@ -3,61 +3,51 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExportRun extends Model
 {
+    protected $table = 'export_runs';
+
     protected $fillable = [
         'export_profile_id',
-        'path',
-        'xml_content',
         'status',
         'product_count',
         'is_public',
-        'published_at',
         'publish_token',
+        'path',          // Artık public URL tutulur (örn. https://xml.ankaverse.com.tr/TOKEN)
+        'storage_path',  // Fiziksel dosya yolu (örn. exports/1/20250812_161733.xml)
+        'published_at',
         'error',
+        'name',
     ];
 
     protected $casts = [
-        'is_public'     => 'boolean',
-        'published_at'  => 'datetime',
-        'product_count' => 'integer',
+        'is_public'    => 'boolean',
+        'published_at' => 'datetime',
     ];
 
-    // NULL gelirse bile DB'ye giderken varsayılanları uygula
-    protected $attributes = [
-        'status'        => 'manual',
-        'product_count' => 0,
-        'is_public'     => false,
-    ];
-
-    public function exportProfile(): BelongsTo
-    {
-        return $this->belongsTo(ExportProfile::class);
-    }
-	public function getPrettyUrlAttribute(): ?string
-{
-    if (! $this->path) return null;
-    $code = pathinfo($this->path, PATHINFO_FILENAME); // 01K37R3J...
-    return url('/' . $code);
-}
-
-
+    /**
+     * Public URL kısayolu (artık path zaten public URL)
+     */
     public function getPublicUrlAttribute(): ?string
     {
-        if (! $this->path) return null;
-
-        $cdn = rtrim((string) env('CDN_PUBLIC_BASE', ''), '/');
-        if ($cdn !== '') {
-            return $cdn . '/' . ltrim($this->path, '/');
-        }
-        return \Storage::disk('public')->url($this->path);
+        return $this->path;
     }
 
-    public function getDownloadUrlAttribute(): ?string
+    /**
+     * Dosyanın yazıldığı disk adı (config/filesystems.php).
+     * Eğer R2/S3 kullanıyorsanız burada karar verebilirsiniz.
+     */
+    public function getStorageDiskAttribute(): string
     {
-        return $this->public_url;
-        // alternatif: route('admin.exports.download', ['exportRun' => $this->id]);
+        return config('filesystems.default', 'public');
+    }
+
+    /**
+     * (Opsiyonel) İlişkiler…
+     */
+    public function exportProfile()
+    {
+        return $this->belongsTo(\App\Models\ExportProfile::class, 'export_profile_id');
     }
 }
