@@ -11,18 +11,18 @@ class ExportRunDownloadController extends Controller
 {
     /**
      * Örnek route: GET /export-runs/{exportRun}/download
-     * Route model binding ExportRun çözümlemesini yapar.
      */
     public function download(ExportRun $exportRun): StreamedResponse
     {
-        if (blank($exportRun->path) || Storage::disk('local')->missing($exportRun->path)) {
+        // path: 'exports/1/20250812_161733.xml' gibi (public disk)
+        if (blank($exportRun->path) || Storage::disk('public')->missing($exportRun->path)) {
             abort(404, 'Dosya bulunamadı');
         }
 
         $name = basename($exportRun->path);
 
         return response()->streamDownload(function () use ($exportRun) {
-            echo Storage::disk('local')->get($exportRun->path);
+            echo Storage::disk('public')->get($exportRun->path);
         }, $name, [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);

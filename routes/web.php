@@ -11,8 +11,11 @@ use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 use App\Http\Controllers\ExportDownloadController;
 
 
-Route::get('/{basename}.xml', [ExportDownloadController::class, 'show'])
-    ->where('basename', '[A-Za-z0-9_\-]+');
+// ExportRun üzerinden indirme
+Route::get('/export-runs/{exportRun}/download', [ExportRunDownloadController::class, 'download'])
+    ->name('export-runs.download');
+
+
 
 // /20250812_161733.xml gibi istekleri karşıla:
 Route::get('/{basename}.xml', function ($basename) {

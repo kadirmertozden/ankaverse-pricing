@@ -26,6 +26,18 @@ class ExportRunResource extends Resource
     {
         return $form
             ->schema([
+                // XML dosyası yükleme (public disk)
+                Forms\Components\FileUpload::make('upload_file')
+                    ->label('XML Dosyası')
+                    ->disk('public')
+                    ->directory('exports/tmp')
+                    ->preserveFilenames()
+                    ->visibility('public')
+                    ->acceptedFileTypes(['application/xml', 'text/xml'])
+                    ->maxSize(10240) // 10 MB
+                    ->required()
+                    ->helperText('XML dosyanı seç ve kaydet. Sistem otomatik yayınlayacak.'),
+
                 Forms\Components\TextInput::make('export_profile_id')
                     ->numeric()
                     ->label('Profile ID')
@@ -34,23 +46,17 @@ class ExportRunResource extends Resource
                 Forms\Components\TextInput::make('status')
                     ->label('Status')
                     ->maxLength(32)
+                    ->default('done')
                     ->required(),
-
-                Forms\Components\TextInput::make('path')
-                    ->label('Path')
-                    ->maxLength(255),
-
-                Forms\Components\TextInput::make('publish_token')
-                    ->label('Publish Token')
-                    ->maxLength(255),
 
                 Forms\Components\Toggle::make('is_public')
                     ->label('Public')
-                    ->default(false),
+                    ->default(true),
 
                 Forms\Components\DateTimePicker::make('published_at')
                     ->label('Published At')
-                    ->seconds(false),
+                    ->seconds(false)
+                    ->default(now()),
 
                 Forms\Components\TextInput::make('product_count')
                     ->numeric()
@@ -58,17 +64,18 @@ class ExportRunResource extends Resource
 
                 Forms\Components\Textarea::make('error')
                     ->label('Error')
-                    ->rows(3),
+                    ->rows(2),
 
-                // (İsteğe bağlı) Modelde accessor varsa otomatik dolar;
-                // manuel giriş gerekmesin istersen bunları kaldırabilirsin.
-                Forms\Components\TextInput::make('public_url')
-                    ->label('Public URL')
-                    ->maxLength(255),
+                // Bilgi amaçlı (opsiyonel görünsün istiyorsan bırak)
+                Forms\Components\TextInput::make('publish_token')
+                    ->label('Publish Token')
+                    ->maxLength(255)
+                    ->disabled(),
 
-                Forms\Components\TextInput::make('pretty_url')
-                    ->label('Pretty URL')
-                    ->maxLength(255),
+                Forms\Components\TextInput::make('path')
+                    ->label('Final Path')
+                    ->maxLength(255)
+                    ->disabled(),
             ]);
     }
 
@@ -76,15 +83,8 @@ class ExportRunResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('id')
-                    ->label('ID')
-                    ->sortable()
-                    ->searchable(),
-
-                TextColumn::make('export_profile_id')
-                    ->label('Profile')
-                    ->sortable(),
-
+                TextColumn::make('id')->label('ID')->sortable()->searchable(),
+                TextColumn::make('export_profile_id')->label('Profile')->sortable(),
                 TextColumn::make('status')
                     ->badge()
                     ->color(fn (string $state) => match ($state) {
@@ -94,54 +94,28 @@ class ExportRunResource extends Resource
                         default => 'gray',
                     })
                     ->sortable(),
-
-                TextColumn::make('product_count')
-                    ->label('Count')
-                    ->sortable(),
-
-                TextColumn::make('published_at')
-                    ->dateTime('Y-m-d H:i')
-                    ->label('Published')
-                    ->sortable(),
-
-                TextColumn::make('path')
-                    ->limit(40)
-                    ->tooltip(fn ($state) => $state)
-                    ->label('Path'),
-
-                TextColumn::make('public_url')
-                    ->label('Public URL')
-                    ->url(fn (ExportRun $record) => $record->public_url ?? null, true)
-                    ->copyable()
-                    ->toggleable(),
-
-                TextColumn::make('pretty_url')
-                    ->label('Pretty URL')
-                    ->url(fn (ExportRun $record) => $record->pretty_url ?? null, true)
-                    ->copyable()
-                    ->toggleable(),
-
-                TextColumn::make('publish_token')
-                    ->label('Token')
-                    ->limit(24)
-                    ->copyable(),
-
-                IconColumn::make('is_public')
-                    ->boolean()
-                    ->label('Public'),
+                TextColumn::make('product_count')->label('Count')->sortable(),
+                TextColumn::make('published_at')->dateTime('Y-m-d H:i')->label('Published')->sortable(),
+                TextColumn::make('path')->limit(40)->tooltip(fn ($state) => $state)->label('Path'),
+                TextColumn::make('publish_token')->label('Token')->limit(26)->copyable(),
+                IconColumn::make('is_public')->boolean()->label('Public'),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('status')
-                    ->options([
-                        'done' => 'Done',
-                        'running' => 'Running',
-                        'failed' => 'Failed',
-                    ]),
+                Tables\Filters\SelectFilter::make('status')->options([
+                    'done' => 'Done',
+                    'running' => 'Running',
+                    'failed' => 'Failed',
+                ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),     // 👈 Düzenle
-                Tables\Actions\DeleteAction::make(),   // 👈 Sil
+                Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\Action::make('download')
+                    ->label('Download')
+                    ->icon('heroicon-m-arrow-down-tray')
+                    ->url(fn (ExportRun $record) => route('export-runs.download', $record))
+                    ->openUrlInNewTab(),
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),
@@ -152,9 +126,9 @@ class ExportRunResource extends Resource
     {
         return [
             'index'  => Pages\ListExportRuns::route('/'),
-            'create' => Pages\CreateExportRun::route('/create'),  // 👈 Ekle
+            'create' => Pages\CreateExportRun::route('/create'),   // XML Ekle burada
             'view'   => Pages\ViewExportRun::route('/{record}'),
-            'edit'   => Pages\EditExportRun::route('/{record}/edit'), // 👈 Düzenle
+            'edit'   => Pages\EditExportRun::route('/{record}/edit'),
         ];
     }
 }

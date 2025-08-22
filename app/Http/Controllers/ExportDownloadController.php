@@ -15,14 +15,14 @@ class ExportDownloadController extends Controller
     public function show(Request $request, string $basename): StreamedResponse
     {
         $filename = $basename . '.xml';
-        $path = "public/exports/{$filename}";
+        $path = "exports/{$filename}"; // public disk
 
-        if (Storage::disk('local')->missing($path)) {
+        if (Storage::disk('public')->missing($path)) {
             abort(404, 'Dosya bulunamadı');
         }
 
         return response()->streamDownload(function () use ($path) {
-            echo Storage::disk('local')->get($path);
+            echo Storage::disk('public')->get($path);
         }, $filename, [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
