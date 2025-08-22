@@ -26,14 +26,10 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\TextInput::make('name')
-                ->label('İsim')->maxLength(255)->required(),
-
-            Forms\Components\FileUpload::make('xml_upload')
-                ->label('XML Yükle')
+            Forms\Components\TextInput::make('name')->label('İsim')->maxLength(255)->required(),
+            Forms\Components\FileUpload::make('xml_upload')->label('XML Yükle')
                 ->acceptedFileTypes(['application/xml','text/xml','.xml'])
-                ->disk('public')->directory('export_tmp')
-                ->preserveFilenames()->maxSize(10240)
+                ->disk('public')->directory('export_tmp')->preserveFilenames()->maxSize(10240)
                 ->dehydrated(false)->columnSpanFull()
                 ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun),
 
@@ -56,39 +52,40 @@ class ExportRunResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('İsim')->searchable(),
                 Tables\Columns\TextColumn::make('publish_token')->label('Token')->copyable()->toggleable(),
                 Tables\Columns\TextColumn::make('product_count')->label('Ürün')->sortable(),
-
-                Tables\Columns\TextColumn::make('path')
-                    ->label('Path (Public URL)')
-                    ->url(fn (ExportRun $r) => self::publicUrl($r), true)
+                Tables\Columns\TextColumn::make('path')->label('Path (Public URL)')
+                    ->url(fn (ExportRun $r) => self::publicUrl($r), true)->copyable()->limit(60)->toggleable(),
+                Tables\Columns\TextColumn::make('storage_path')->label('Dosya Yolu (storage)')
+                    ->formatStateUsing(fn ($state, ExportRun $r) => $state ?: ('exports/'.$r->publish_token.'.xml'))
                     ->copyable()->limit(60)->toggleable(),
-
-                // DÜZELTİLEN KAPATI: parametre adı $state olmalı
-                Tables\Columns\TextColumn::make('storage_path')
-                    ->label('Dosya Yolu (storage)')
-                    ->formatStateUsing(fn ($state, ExportRun $r) => $state ?: ('exports/' . $r->publish_token . '.xml'))
-                    ->copyable()->limit(60)->toggleable(),
-
                 Tables\Columns\TextColumn::make('published_at')->label('Yayınlanma')->dateTime(),
             ])
             ->actions([
                 Tables\Actions\Action::make('view')
                     ->label('View')->url(fn (ExportRun $r) => self::publicUrl($r))->openUrlInNewTab(),
 
-                Tables\Actions\Action::make('download')
-                    ->label('Download')->icon('heroicon-o-arrow-down-tray')
+                Tables\Actions\Action::make('download')->label('Download')->icon('heroicon-o-arrow-down-tray')
                     ->url(fn (ExportRun $r) => URL::temporarySignedRoute('exports.download', now()->addMinutes(10), ['run'=>$r->id]))
-                    ->openUrlInNewTab()
-                    ->disabled(fn (ExportRun $r) => !self::fileExists($r)),
+                    ->openUrlInNewTab()->disabled(fn (ExportRun $r) => !self::fileExists($r)),
 
-                Tables\Actions\Action::make('xmlEdit')
-                    ->label('XML Düzenle')->icon('heroicon-m-pencil-square')->modalWidth('7xl')
+                Tables\Actions\Action::make('xmlEdit')->label('XML Düzenle')
+                    ->icon('heroicon-m-pencil-square')->modalWidth('7xl')
                     ->form([
                         Forms\Components\Textarea::make('xml')->rows(22)->required()
                             ->afterStateHydrated(function (Forms\Components\Textarea $component, ?ExportRun $record) {
                                 if (!$record) return;
                                 $disk = 'public';
                                 $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
-                                $component->state(Storage::disk($disk)->exists($path) ? Storage::disk($disk)->get($path) : '');
+                                if (Storage::disk($disk)->exists($path)) {
+                                    $component->state(Storage::disk($disk)->get($path));
+                                } else {
+                                    // Dosya yoksa boş değil, örnek iskelet göster
+                                    $component->state(
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<Products>
+  <!-- Ürünleri buraya yerleştirin -->
+</Products>"
+                                    );
+                                }
                             }),
                     ])
                     ->action(function (ExportRun $record, array $data) {
@@ -130,57 +127,44 @@ class ExportRunResource extends Resource
         ];
     }
 
-    /* === Helpers === */
-
+    /* Helpers (sanitize / makeWellFormed / robustCountProducts) – önceki sürümdekiyle AYNI */
     public static function publicUrl(ExportRun $record): string
     {
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE','https://xml.ankaverse.com.tr')), '/');
         return $base . '/' . $record->publish_token;
     }
-
     public static function fileExists(ExportRun $record): bool
     {
         $disk = 'public';
         $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
         return Storage::disk($disk)->exists($path);
     }
-
-    /** Her girdiden GEÇERLİ XML üretmeye çalışır. */
     public static function makeWellFormed(string $input): string
     {
         $xml = self::sanitizeXml($input);
         if (self::isValidXml($xml)) return $xml;
-
         $wrapped = "<Products>\n" . $xml . "\n</Products>";
         if (self::isValidXml($wrapped)) return $wrapped;
-
-        $safe = "<Products><Raw><![CDATA[" . self::stripCdataEnd($input) . "]]></Raw></Products>";
-        return $safe;
+        return "<Products><Raw><![CDATA[" . self::stripCdataEnd($input) . "]]></Raw></Products>";
     }
-
     public static function sanitizeXml(string $xml): string
     {
         $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
         $xml = ltrim($xml);
         $pos = strpos($xml, '<');
         if ($pos !== false && $pos > 0) $xml = substr($xml, $pos);
-
         $ph = []; $i = 0;
         $xml = preg_replace_callback('/<!\[CDATA\[(.*?)\]\]>/s', function ($m) use (&$ph,&$i) {
             $k="__CD_{$i}__"; $ph[$k]=$m[0]; $i++; return $k;
         }, $xml);
-
         $xml = preg_replace('/&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)/', '&amp;', $xml);
-
         if ($ph) $xml = str_replace(array_keys($ph), array_values($ph), $xml);
         return $xml;
     }
-
     public static function stripCdataEnd(string $text): string
     {
         return str_replace(']]>', ']]]]><![CDATA[>', $text);
     }
-
     public static function isValidXml(string $xml): bool
     {
         $xml = trim($xml);
@@ -190,7 +174,6 @@ class ExportRunResource extends Resource
         libxml_clear_errors(); libxml_use_internal_errors($prev);
         return $ok;
     }
-
     public static function robustCountProducts(string $xml): int
     {
         $xml = trim($xml); if ($xml === '') return 0;

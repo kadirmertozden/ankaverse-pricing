@@ -14,9 +14,17 @@ class CreateExportRun extends CreateRecord
 {
     protected static string $resource = ExportRunResource::class;
 
+    /** FileUpload değeri (dehydrate=false olduğu için elle yakalayacağız) */
+    private ?string $uploadedTmpPath = null;
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Profil (aktif olan ya da ilk profil)
+        // FileUpload state'ini kaydet (Form resetlenmeden önce!)
+        $state   = $this->form->getRawState();
+        $tmp     = $state['xml_upload'] ?? null;
+        $this->uploadedTmpPath = is_array($tmp) ? ($tmp[0] ?? null) : $tmp;
+
+        // Profil: aktif ilk veya ilk profil
         $profile = ExportProfile::query()->where('is_active', true)->first()
                  ?: ExportProfile::query()->first();
         if (!$profile) {
@@ -24,7 +32,7 @@ class CreateExportRun extends CreateRecord
         }
         $data['export_profile_id'] = $profile->id;
 
-        // Token & Public URL
+        // Token + Public URL
         $data['publish_token'] = $this->generateUniqueToken();
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         $data['path'] = $base . '/' . $data['publish_token'];
@@ -33,7 +41,7 @@ class CreateExportRun extends CreateRecord
         $data['status']    = 'pending';
         $data['is_public'] = true;
 
-        // FileUpload model sütunu olmadığı için uzaklaştır
+        // Modelde sütun olmadığı için
         unset($data['xml_upload']);
 
         return $data;
@@ -45,36 +53,24 @@ class CreateExportRun extends CreateRecord
         $record = $this->record;
         $disk   = 'public';
 
-        // FileUpload state
-        $state   = $this->form->getRawState();
-        $tmp     = $state['xml_upload'] ?? null;
-        $tmpPath = is_array($tmp) ? ($tmp[0] ?? null) : $tmp;
-
-        // Hedef dosya: exports/{TOKEN}.xml
         $desiredPath = 'exports/' . $record->publish_token . '.xml';
 
         try {
             $xml = null;
 
-            if ($tmpPath && Storage::disk($disk)->exists($tmpPath)) {
-                // Yüklenen dosyayı oku
-                $raw = Storage::disk($disk)->get($tmpPath);
-                // Eğer önceki yanıtta verdiğim yardımcılar varsa kullan:
+            if ($this->uploadedTmpPath && Storage::disk($disk)->exists($this->uploadedTmpPath)) {
+                $raw = Storage::disk($disk)->get($this->uploadedTmpPath);
+                // Yardımcı mevcutsa kullan, yoksa minimum temizlik
                 if (method_exists(ExportRunResource::class, 'makeWellFormed')) {
                     $xml = ExportRunResource::makeWellFormed($raw);
                 } else {
-                    // Minimum temizlik – en azından boş olmasın
-                    $xml = trim($raw);
-                    if ($xml === '') {
-                        $xml = '<?xml version="1.0" encoding="UTF-8"?><Products/>';
-                    }
+                    $xml = trim($raw) !== '' ? trim($raw) : '<?xml version="1.0" encoding="UTF-8"?><Products/>';
                 }
             } else {
-                // Yükleme gelmediyse bile bir placeholder yarat
+                // Her durumda dosya oluşsun
                 $xml = '<?xml version="1.0" encoding="UTF-8"?><Products/>';
             }
 
-            // Yaz ve kaydı güncelle
             Storage::disk($disk)->put($desiredPath, $xml);
 
             $record->storage_path  = $desiredPath;
@@ -85,8 +81,9 @@ class CreateExportRun extends CreateRecord
             $record->published_at = now();
             $record->save();
 
-            // Geçici dosyayı temizle
-            if ($tmpPath) { try { Storage::disk($disk)->delete($tmpPath); } catch (\Throwable $e) {} }
+            if ($this->uploadedTmpPath) {
+                try { Storage::disk($disk)->delete($this->uploadedTmpPath); } catch (\Throwable $e) {}
+            }
 
             Notification::make()->title('Export oluşturuldu')->success()->send();
         } catch (\Throwable $e) {
