@@ -13,35 +13,31 @@ class CreateExportRun extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Zorunlu alanlar:
-        $profileId = (int) ($data['export_profile_id'] ?? 0);
-        $tmpPath   = $data['upload_file'] ?? null; // public disk relative path (exports/tmp/xxx.xml)
-
-        if (!$profileId || !$tmpPath) {
+        $tmpPath = $data['upload_file'] ?? null;
+        if (!$tmpPath) {
             return $data;
         }
 
-        // Yayın token’ı üret
+        // Token üret
         $token = Str::upper(Str::random(26));
 
-        // Hedef konum: exports/{profile}/manual/{TOKEN}.xml
-        $destPath = "exports/{$profileId}/manual/{$token}.xml";
+        // Hedef path: exports/manual/{TOKEN}.xml
+        $destPath = "exports/manual/{$token}.xml";
 
-        // Dosyayı tmp'den hedefe taşı
+        // Taşı
         if (Storage::disk('public')->exists($tmpPath)) {
-            Storage::disk('public')->makeDirectory("exports/{$profileId}/manual");
+            Storage::disk('public')->makeDirectory("exports/manual");
             Storage::disk('public')->move($tmpPath, $destPath);
         }
 
-        // Model alanlarını doldur
-        $data['publish_token'] = $token;
-        $data['path']          = $destPath;           // public disk
-        $data['status']        = $data['status'] ?? 'done';
-        $data['is_public']     = $data['is_public'] ?? true;
-        $data['published_at']  = $data['published_at'] ?? now();
-
-        // upload_file form alanını modelde tutmayacağız
-        unset($data['upload_file']);
+        $data = [
+            'publish_token' => $token,
+            'path'          => $destPath,
+            'status'        => 'done',
+            'is_public'     => true,
+            'published_at'  => now(),
+            'product_count' => 0,
+        ];
 
         return $data;
     }
