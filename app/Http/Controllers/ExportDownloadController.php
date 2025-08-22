@@ -1,43 +1,30 @@
 <?php
 
+namespace App\Http\Controllers;
 
-namespace App\Http\Controllers\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use App\Models\ExportRun;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExportDownloadController extends Controller
 {
+    /**
+     * Örnek route: GET /exports/{basename}
+     * basename: "01K37R3JPQ98TC8GN19RG42ZRX" (uzantısız token)
+     */
     public function show(Request $request, string $basename): StreamedResponse
     {
         $filename = $basename . '.xml';
+        $path = "public/exports/{$filename}";
 
-        $run = ExportRun::query()
-            ->where('path', 'like', "%/{$filename}")
-            ->latest('published_at')
-            ->first();
+        if (Storage::disk('local')->missing($path)) {
+            abort(404, 'Dosya bulunamadı');
+        }
 
-        if (! $run) abort(404);
-
-        $disk = config('filesystems.default', 's3');
-        $path = $run->path;
-
-        if (! Storage::disk($disk)->exists($path)) abort(404);
-
-        $stream = Storage::disk($disk)->readStream($path);
-
-        $asAttachment = (bool) $request->boolean('dl');
-
-        return response()->stream(function () use ($stream) {
-            fpassthru($stream);
-        }, 200, [
-            'Content-Type'              => 'application/xml; charset=UTF-8',
-            'Content-Disposition'       => ($asAttachment ? 'attachment' : 'inline') . '; filename="' . $filename . '"',
-            'Cache-Control'             => 'public, max-age=31536000, immutable',
-            'X-Content-Type-Options'    => 'nosniff',
-            'Content-Security-Policy'   => "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox",
-            'Referrer-Policy'           => 'no-referrer',
+        return response()->streamDownload(function () use ($path) {
+            echo Storage::disk('local')->get($path);
+        }, $filename, [
+            'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
     }
 }

@@ -5,10 +5,15 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Models\ExportRun;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class ExportDownloadController extends Controller
+class ExportRunDownloadController extends Controller
 {
-    public function download(ExportRun $exportRun)
+    /**
+     * Örnek route: GET /export-runs/{exportRun}/download
+     * Route model binding ExportRun çözümlemesini yapar.
+     */
+    public function download(ExportRun $exportRun): StreamedResponse
     {
         if (blank($exportRun->path) || Storage::disk('local')->missing($exportRun->path)) {
             abort(404, 'Dosya bulunamadı');

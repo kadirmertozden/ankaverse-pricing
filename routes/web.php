@@ -8,7 +8,6 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\ExportFeedController;
 use App\Http\Controllers\ExportRunDownloadController; // (kullanıyorsan dursun)
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
-
 use App\Http\Controllers\ExportDownloadController;
 
 
@@ -207,3 +206,12 @@ Route::get('/{code}.xml', function (string $code) {
     ]);
 })->where('code', '[A-Za-z0-9_-]{20,64}');
 
+
+// Uzantısız token URL (örn: /01K37R3JPQ98TC8GN19RG42ZRX)
+Route::get('/{basename}', [ExportDownloadController::class, 'show'])
+    ->where('basename', '[A-Za-z0-9]+')
+    ->name('exports.public');
+
+// ExportRun üzerinden indirme
+Route::get('/export-runs/{exportRun}/download', [ExportRunDownloadController::class, 'download'])
+    ->name('export-runs.download');
