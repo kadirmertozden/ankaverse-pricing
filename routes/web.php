@@ -171,3 +171,39 @@ Route::get('/debug/reset-admin', function () {
 });
 
 
+
+// /ABC123... (uzun alfanümerik kod) → /storage/app/public/exports/1/manual/<code>.xml
+Route::get('/{code}', function (string $code) {
+    // Kodu sınırlayalım ki /admin, /health vs. ile çakışmasın:
+    abort_unless(preg_match('/^[A-Za-z0-9_-]{20,64}$/', $code), 404);
+
+    // İstersen profil ID'yi dinamikleştirebilirsin; şimdilik 1:
+    $relPath = "exports/1/manual/{$code}.xml";
+
+    if (! Storage::disk('public')->exists($relPath)) {
+        abort(404);
+    }
+
+    $stream = Storage::disk('public')->readStream($relPath);
+
+    return response()->stream(function () use ($stream) {
+        fpassthru($stream);
+    }, 200, [
+        'Content-Type'            => 'application/xml; charset=UTF-8',
+        'Content-Disposition'     => 'inline; filename="'.$code.'.xml"',
+        'Cache-Control'           => 'public, max-age=31536000, immutable',
+        'X-Content-Type-Options'  => 'nosniff',
+    ]);
+})->where('code', '[A-Za-z0-9_-]{20,64}');
+
+
+Route::get('/{code}.xml', function (string $code) {
+    abort_unless(preg_match('/^[A-Za-z0-9_-]{20,64}$/', $code), 404);
+    $relPath = "exports/1/manual/{$code}.xml";
+    if (! Storage::disk('public')->exists($relPath)) abort(404);
+    return response()->file(storage_path("app/public/{$relPath}"), [
+        'Content-Type' => 'application/xml; charset=UTF-8',
+        'Cache-Control'=> 'public, max-age=31536000, immutable',
+    ]);
+})->where('code', '[A-Za-z0-9_-]{20,64}');
+

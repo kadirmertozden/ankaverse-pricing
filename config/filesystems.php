@@ -1,4 +1,5 @@
 <?php
+APP_URL=https://xml.ankaverse.com.tr
 
 return [
 

@@ -36,6 +36,13 @@ class ExportRun extends Model
     {
         return $this->belongsTo(ExportProfile::class);
     }
+	public function getPrettyUrlAttribute(): ?string
+{
+    if (! $this->path) return null;
+    $code = pathinfo($this->path, PATHINFO_FILENAME); // 01K37R3J...
+    return url('/' . $code);
+}
+
 
     public function getPublicUrlAttribute(): ?string
     {

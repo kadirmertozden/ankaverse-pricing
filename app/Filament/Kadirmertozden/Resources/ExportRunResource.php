@@ -92,6 +92,10 @@ class ExportRunResource extends Resource
                 TextColumn::make('public_url')
                     ->label('Public URL')
                     ->url(fn (ExportRun $record) => $record->public_url, true),
+				TextColumn::make('pretty_url')
+    ->label('Pretty URL')
+    ->url(fn ($record) => $record->pretty_url, true);
+
             ])
 
             ->actions([
