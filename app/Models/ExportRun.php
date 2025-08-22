@@ -3,41 +3,57 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class ExportRun extends Model
 {
     protected $table = 'export_runs';
 
     protected $fillable = [
-        'export_profile_id',
-        'status',
-        'product_count',
-        'is_public',
-        'publish_token',
-        'path',          // Public URL
-        'storage_path',  // Fiziksel dosya yolu
-        'published_at',
-        'error', 
         'name',
+        'publish_token',
+        'storage_path',
+        'product_count',
+        'is_active',
     ];
 
     protected $casts = [
-        'is_public'    => 'boolean',
-        'published_at' => 'datetime', 
+        'is_active' => 'boolean',
+        'product_count' => 'integer',
     ];
 
-    public function getPublicUrlAttribute(): ?string
+    public static function boot()
     {
-        return $this->path;
+        parent::boot();
+
+        static::creating(function (ExportRun $model) {
+            if (empty($model->publish_token)) {
+                $model->publish_token = self::generateToken();
+            }
+            if (empty($model->is_active)) {
+                $model->is_active = true;
+            }
+        });
     }
 
-    public function getStorageDiskAttribute(): string
+    public static function generateToken(int $len = 26): string
     {
-        return config('filesystems.default', 'public');
+        // Büyük harf + rakam
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        $token = '';
+        for ($i = 0; $i < $len; $i++) {
+            $token .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+        return $token;
     }
 
-    public function exportProfile()
+    public function getPublishUrlAttribute(): string
     {
-        return $this->belongsTo(\App\Models\ExportProfile::class, 'export_profile_id');
+        return route('exports.show', ['token' => $this->publish_token]);
+    }
+
+    public function getDownloadUrlAttribute(): string
+    {
+        return route('exports.download', ['token' => $this->publish_token]);
     }
 }

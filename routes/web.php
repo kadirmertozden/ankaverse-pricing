@@ -1,21 +1,15 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\ExportController;
+use App\Http\Controllers\ExportRunController;
 
-/*
-|--------------------------------------------------------------------------
-| Web Routes
-|--------------------------------------------------------------------------
-| Token route'u EN ALTA koy ki diğer path'leri gölgelemesin.
-*/
+// ---- Diğer rotalarınız ----
 
-// Admin indirme (imzalı)
-Route::get('/admin/exports/{run}/download', [ExportController::class, 'adminDownload'])
-    ->middleware('signed')
+// Herkese açık yayın (yalnızca 20-64 uzunlukta BÜYÜK HARF + RAKAM token)
+Route::get('/{token}', [ExportRunController::class, 'show'])
+    ->where('token', '^[A-Z0-9]{20,64}$')
+    ->name('exports.show');
+
+Route::get('/{token}/download', [ExportRunController::class, 'download'])
+    ->where('token', '^[A-Z0-9]{20,64}$')
     ->name('exports.download');
-
-// Public XML – token'ı bilen HERKES erişir
-Route::get('/{token}', [ExportController::class, 'publicShow'])
-    ->where('token', '[A-Za-z0-9]{16,64}')
-    ->name('exports.public');
