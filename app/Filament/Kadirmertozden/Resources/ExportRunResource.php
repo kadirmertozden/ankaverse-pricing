@@ -7,7 +7,6 @@ use App\Models\ExportProfile;
 use App\Models\ExportRun;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -15,9 +14,9 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\BulkAction;
-use Filament\Tables\Actions\DeleteAction as TableDeleteAction; // Filament kendi DB delete'i
+use Filament\Tables\Actions\DeleteAction as TableDeleteAction;
 use Illuminate\Support\Facades\Storage;
-
+use Illuminate\Support\Str;
 
 class ExportRunResource extends Resource
 {
@@ -55,9 +54,9 @@ class ExportRunResource extends Resource
             Forms\Components\Fieldset::make('XML Yükle')->schema([
                 Forms\Components\FileUpload::make('path')
                     ->label('XML Dosyası')
-                    ->disk('local')
-                    ->directory(fn ($get) => 'exports/' . $get('export_profile_id') . '/manual')
-                    ->visibility('private')
+                    ->disk('public') // public diske yazıyoruz (storage:link mevcut)
+                    ->directory(fn ($get) => 'exports/' . ($get('export_profile_id') ?? 1) . '/manual')
+                    ->visibility('public')
                     ->acceptedFileTypes(['application/xml', 'text/xml'])
                     ->maxSize(2048) // KB
                     ->rules(['required_without:xml_content']),
@@ -80,86 +79,86 @@ class ExportRunResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('id')->sortable(),
-                TextColumn::make('path')->label('Path')->limit(60)->wrap(),
+                TextColumn::make('id')->label('ID')->sortable(),
+                // path sütununu KOLONLARDA göster (actions içine koyma!)
+                TextColumn::make('path')
+                    ->label('XML Yolu')
+                    ->limit(60)
+                    ->wrap()
+                    ->url(fn (ExportRun $record) => Storage::disk('public')->url($record->path), true)
+                    ->openUrlInNewTab(),
                 IconColumn::make('is_public')->boolean()->label('Public'),
                 TextColumn::make('published_at')->dateTime()->label('Published'),
-                // Güvenli: sadece tıklanabilir link (kopyala özelliğini şimdilik kaldırdık)
                 TextColumn::make('public_url')
                     ->label('Public URL')
                     ->url(fn (ExportRun $record) => $record->public_url, true),
             ])
-->actions([
-    Action::make('publish_to_r2')
-        ->label('R2’ye Yükle / Yenile')
-        ->icon('heroicon-o-cloud-arrow-up')
-        ->action(function (ExportRun $record) {
-            app(\App\Services\ExportPublisher::class)->upload($record);
-            if (class_exists(\Filament\Notifications\Notification::class)) {
-                \Filament\Notifications\Notification::make()
-                    ->title('Yüklendi')
-                    ->body('R2’ye yüklendi: ' . $record->public_url)
-                    ->success()
-                    ->send();
-            }
-        }),
-Tables\Columns\TextColumn::make('path')
-    ->label('XML URL')
-    ->formatStateUsing(fn ($state) => Storage::disk('public')->url($state))
-    ->url(fn ($record) => Storage::disk('public')->url($record->path))
-    ->openUrlInNewTab(),
-    // XML Sil (S3'ten sil + kaydı yayından kaldır)
-    Action::make('delete_xml')
-        ->label('XML Sil')
-        ->icon('heroicon-o-trash')
-        ->color('danger')
-        ->requiresConfirmation()
-        ->action(function (ExportRun $record) {
-            app(\App\Services\ExportPublisher::class)->delete($record);
-            if (class_exists(\Filament\Notifications\Notification::class)) {
-                \Filament\Notifications\Notification::make()
-                    ->title('Silindi')
-                    ->body('XML yayından kaldırıldı.')
-                    ->success()
-                    ->send();
-            }
-        }),
 
-    Action::make('view')
-        ->label('Görüntüle')
-        ->icon('heroicon-o-eye')
-        ->url(fn (ExportRun $record) => $record->public_url, true),
+            ->actions([
+                Action::make('publish_to_r2')
+                    ->label('R2’ye Yükle / Yenile')
+                    ->icon('heroicon-o-cloud-arrow-up')
+                    ->action(function (ExportRun $record) {
+                        app(\App\Services\ExportPublisher::class)->upload($record);
+                        if (class_exists(\Filament\Notifications\Notification::class)) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Yüklendi')
+                                ->body('R2’ye yüklendi: ' . $record->public_url)
+                                ->success()
+                                ->send();
+                        }
+                    }),
 
-    Action::make('download')
-        ->label('İndir')
-        ->icon('heroicon-o-arrow-down-tray')
-        ->url(fn (ExportRun $record) => $record->download_url, true)
-        ->openUrlInNewTab(false),
+                Action::make('delete_xml')
+                    ->label('XML Sil')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->action(function (ExportRun $record) {
+                        app(\App\Services\ExportPublisher::class)->delete($record);
+                        if (class_exists(\Filament\Notifications\Notification::class)) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Silindi')
+                                ->body('XML yayından kaldırıldı.')
+                                ->success()
+                                ->send();
+                        }
+                    }),
 
-    // (İstersen DB kaydını da tamamen silmek için Filament'in DeleteAction'ını da bırak)
-    TableDeleteAction::make(),
-])
+                Action::make('view')
+                    ->label('Görüntüle')
+                    ->icon('heroicon-o-eye')
+                    ->url(fn (ExportRun $record) => $record->public_url, true),
 
-->bulkActions([
-    BulkAction::make('bulk_delete_xml')
-        ->label('Seçilenlerin XML’ini Sil')
-        ->icon('heroicon-o-trash')
-        ->color('danger')
-        ->requiresConfirmation()
-        ->action(function ($records) {
-            $svc = app(\App\Services\ExportPublisher::class);
-            foreach ($records as $record) {
-                $svc->delete($record);
-            }
-            if (class_exists(\Filament\Notifications\Notification::class)) {
-                \Filament\Notifications\Notification::make()
-                    ->title('Silindi')
-                    ->body('Seçilen kayıtların XML\'leri yayından kaldırıldı.')
-                    ->success()
-                    ->send();
-            }
-        }),
-]);
+                Action::make('download')
+                    ->label('İndir')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->url(fn (ExportRun $record) => $record->download_url, true)
+                    ->openUrlInNewTab(false),
 
+                // DB kaydını komple silmek istersen
+                TableDeleteAction::make(),
+            ])
+
+            ->bulkActions([
+                BulkAction::make('bulk_delete_xml')
+                    ->label('Seçilenlerin XML’ini Sil')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->action(function ($records) {
+                        $svc = app(\App\Services\ExportPublisher::class);
+                        foreach ($records as $record) {
+                            $svc->delete($record);
+                        }
+                        if (class_exists(\Filament\Notifications\Notification::class)) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Silindi')
+                                ->body('Seçilen kayıtların XML\'leri yayından kaldırıldı.')
+                                ->success()
+                                ->send();
+                        }
+                    }),
+            ]);
     }
 }
