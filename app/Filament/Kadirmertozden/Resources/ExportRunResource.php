@@ -9,6 +9,8 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Forms;
+use Filament\Forms\Form;
 
 class ExportRunResource extends Resource
 {
@@ -19,6 +21,56 @@ class ExportRunResource extends Resource
     protected static ?string $modelLabel = 'Export Run';
     protected static ?string $pluralModelLabel = 'Export Runs';
     protected static ?string $navigationGroup = 'Exports';
+
+    public static function form(Form $form): Form
+    {
+        return $form
+            ->schema([
+                Forms\Components\TextInput::make('export_profile_id')
+                    ->numeric()
+                    ->label('Profile ID')
+                    ->required(),
+
+                Forms\Components\TextInput::make('status')
+                    ->label('Status')
+                    ->maxLength(32)
+                    ->required(),
+
+                Forms\Components\TextInput::make('path')
+                    ->label('Path')
+                    ->maxLength(255),
+
+                Forms\Components\TextInput::make('publish_token')
+                    ->label('Publish Token')
+                    ->maxLength(255),
+
+                Forms\Components\Toggle::make('is_public')
+                    ->label('Public')
+                    ->default(false),
+
+                Forms\Components\DateTimePicker::make('published_at')
+                    ->label('Published At')
+                    ->seconds(false),
+
+                Forms\Components\TextInput::make('product_count')
+                    ->numeric()
+                    ->label('Product Count'),
+
+                Forms\Components\Textarea::make('error')
+                    ->label('Error')
+                    ->rows(3),
+
+                // (İsteğe bağlı) Modelde accessor varsa otomatik dolar;
+                // manuel giriş gerekmesin istersen bunları kaldırabilirsin.
+                Forms\Components\TextInput::make('public_url')
+                    ->label('Public URL')
+                    ->maxLength(255),
+
+                Forms\Components\TextInput::make('pretty_url')
+                    ->label('Pretty URL')
+                    ->maxLength(255),
+            ]);
+    }
 
     public static function table(Table $table): Table
     {
@@ -60,12 +112,14 @@ class ExportRunResource extends Resource
                 TextColumn::make('public_url')
                     ->label('Public URL')
                     ->url(fn (ExportRun $record) => $record->public_url ?? null, true)
-                    ->copyable(),
+                    ->copyable()
+                    ->toggleable(),
 
                 TextColumn::make('pretty_url')
                     ->label('Pretty URL')
                     ->url(fn (ExportRun $record) => $record->pretty_url ?? null, true)
-                    ->copyable(),
+                    ->copyable()
+                    ->toggleable(),
 
                 TextColumn::make('publish_token')
                     ->label('Token')
@@ -86,11 +140,8 @@ class ExportRunResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
-                Tables\Actions\Action::make('download')
-                    ->label('Download')
-                    ->icon('heroicon-m-arrow-down-tray')
-                    ->url(fn (ExportRun $record) => route('export-runs.download', $record))
-                    ->openUrlInNewTab(),
+                Tables\Actions\EditAction::make(),     // 👈 Düzenle
+                Tables\Actions\DeleteAction::make(),   // 👈 Sil
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),
@@ -100,8 +151,10 @@ class ExportRunResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListExportRuns::route('/'),
-            'view'  => Pages\ViewExportRun::route('/{record}'),
+            'index'  => Pages\ListExportRuns::route('/'),
+            'create' => Pages\CreateExportRun::route('/create'),  // 👈 Ekle
+            'view'   => Pages\ViewExportRun::route('/{record}'),
+            'edit'   => Pages\EditExportRun::route('/{record}/edit'), // 👈 Düzenle
         ];
     }
 }
