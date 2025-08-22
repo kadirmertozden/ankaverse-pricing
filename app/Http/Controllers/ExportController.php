@@ -10,10 +10,7 @@ use Illuminate\Support\Str;
 
 class ExportController extends Controller
 {
-    /**
-     * Public token ile XML göster (Content-Type: application/xml).
-     * Sadece is_public = true olan kayıtlar.
-     */
+    // Public token ile XML göster (sadece is_public = true)
     public function publicShow(string $token)
     {
         $run = ExportRun::query()
@@ -24,7 +21,6 @@ class ExportController extends Controller
         $disk = $run->storage_disk ?? config('filesystems.default', 'public');
 
         if (!$run->storage_path || !Storage::disk($disk)->exists($run->storage_path)) {
-            // Dosya yoksa 404 ver (500 değil)
             abort(404, 'XML dosyası bulunamadı.');
         }
 
@@ -36,10 +32,7 @@ class ExportController extends Controller
         ]);
     }
 
-    /**
-     * Admin’den imzalı link ile dosyayı indir.
-     * (Route 'signed' middleware ile korunur)
-     */
+    // Admin’den imzalı link ile indir
     public function adminDownload(Request $request, ExportRun $run)
     {
         $disk = $run->storage_disk ?? config('filesystems.default', 'public');

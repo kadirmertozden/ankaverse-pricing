@@ -11,6 +11,7 @@ use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 use App\Http\Controllers\ExportDownloadController;
 
 
+
 // ExportRun üzerinden indirme
 Route::get('/export-runs/{exportRun}/download', [ExportRunDownloadController::class, 'download'])
     ->name('export-runs.download');
@@ -55,14 +56,16 @@ Route::get('/__debug/exports/{folder}/{any}', function ($folder, $any) {
 //  Exports: PUBLIC API
 // ===================== 
 // Public token route: https://xml.ankaverse.com.tr/TOKEN
-Route::get('/{token}', [ExportController::class, 'publicShow'])
-    ->where('token', '[A-Z0-9]{26}')
-    ->name('exports.public');
 
-// Admin indirme (imzalı link ile korunan)
+// (1) Admin indir – imzalı link
 Route::get('/admin/exports/{run}/download', [ExportController::class, 'adminDownload'])
     ->middleware(['web', 'signed'])
     ->name('exports.download');
+
+// Public XML – token (16–64) a-zA-Z0-9
+Route::get('/{token}', [ExportController::class, 'publicShow'])
+    ->where('token', '[A-Za-z0-9]{16,64}')
+    ->name('exports.public');
 // 1) Token ile güvenli yayın (önerilir)
 Route::get('/exports/t/{token}', [ExportController::class, 'showByToken'])
     ->name('exports.show');

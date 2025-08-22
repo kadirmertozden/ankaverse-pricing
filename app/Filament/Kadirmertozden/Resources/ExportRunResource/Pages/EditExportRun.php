@@ -13,18 +13,16 @@ class EditExportRun extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // public URL senkron
+        // Token değiştirilmesin; path senkron
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
-        $data['publish_token'] = $this->record->publish_token; // değiştirmiyoruz
+        $data['publish_token'] = $this->record->publish_token;
         $data['path'] = $base . '/' . $data['publish_token'];
 
-        unset($data['xml_upload']); // modele gitmesin
-
+        unset($data['xml_upload']);
         // export_profile_id mevcut kalsın
         if (!empty($this->record->export_profile_id)) {
             $data['export_profile_id'] = $this->record->export_profile_id;
         }
-
         return $data;
     }
 
@@ -46,8 +44,7 @@ class EditExportRun extends EditRecord
                 }
 
                 Storage::disk($disk)->put($record->storage_path, $xml);
-
-                $record->product_count = ExportRunResource::countProducts($xml);
+                $record->product_count = ExportRunResource::robustCountProducts($xml);
                 $record->published_at  = now();
                 $record->status        = 'done';
                 $record->save();
