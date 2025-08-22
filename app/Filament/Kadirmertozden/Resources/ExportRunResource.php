@@ -25,6 +25,7 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+            // CREATE & EDIT: yalnızca İSİM ve XML YÜKLE kalsın
             Forms\Components\TextInput::make('name')
                 ->label('İsim')
                 ->placeholder('Örn: HB Günlük Feed (08:00)')
@@ -42,10 +43,17 @@ class ExportRunResource extends Resource
                 ->dehydrated(false)
                 ->columnSpanFull(),
 
-            // Edit’te bilgilendirme alanları (salt-okunur)
-            Forms\Components\TextInput::make('publish_token')->label('Token')->disabled()
-                ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun),
-            Forms\Components\TextInput::make('path')->label('Public URL')->disabled()
+            // EDIT: Token düzenlenebilir, Path salt-okunur
+            Forms\Components\TextInput::make('publish_token')
+                ->label('Token (16–64, A–Z ve 0–9)')
+                ->helperText('Boş bırakırsan kaydederken otomatik yeni token üretilir.')
+                ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun)
+                ->required(false)
+                ->maxLength(64),
+
+            Forms\Components\TextInput::make('path')
+                ->label('Public URL')
+                ->disabled()
                 ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun),
         ])->columns(1);
     }
@@ -83,6 +91,7 @@ class ExportRunResource extends Resource
                     ->openUrlInNewTab()
                     ->disabled(fn (ExportRun $r) => !self::fileExists($r)),
 
+                // XML Düzenle (sanitize + validate içerik)
                 Tables\Actions\Action::make('xmlEdit')
                     ->label('XML Düzenle')
                     ->icon('heroicon-m-pencil-square')
@@ -94,8 +103,7 @@ class ExportRunResource extends Resource
                                 if (!$record) return;
                                 $disk = $record->storage_disk ?? config('filesystems.default', 'public');
                                 if ($record->storage_path && Storage::disk($disk)->exists($record->storage_path)) {
-                                    $raw = Storage::disk($disk)->get($record->storage_path);
-                                    $component->state($raw);
+                                    $component->state(Storage::disk($disk)->get($record->storage_path));
                                 } else {
                                     $component->state('');
                                 }
@@ -110,7 +118,7 @@ class ExportRunResource extends Resource
                         $raw  = (string) ($data['xml'] ?? '');
                         $xml  = self::sanitizeXml($raw);
                         if (!self::isValidXml($xml)) {
-                            throw new \RuntimeException('Geçersiz XML: Düz (&) işaretleri gibi karakterler otomatik düzeltilmeye çalışıldı ama hâlâ hata var. Lütfen içeriği kontrol edin.');
+                            throw new \RuntimeException('Geçersiz XML: lütfen içeriği kontrol edin (kaçak & vb.).');
                         }
 
                         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
@@ -136,21 +144,57 @@ class ExportRunResource extends Resource
         ];
     }
 
-    /* === Helpers === */
-
+    /* Helpers */
     public static function publicUrl(ExportRun $record): string
     {
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         return $base . '/' . $record->publish_token;
     }
-
     public static function fileExists(ExportRun $record): bool
     {
         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
         return $record->storage_path && Storage::disk($disk)->exists($record->storage_path);
     }
 
-    /** Ürün sayacı (Product/Urun/Item/StockCode fallback) */
+    // --- XML yardımcıları (sanitize + validate + count) ---
+
+    public static function sanitizeXml(string $xml): string
+    {
+        $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
+        $xml = ltrim($xml);
+        $pos = strpos($xml, '<');
+        if ($pos !== false && $pos > 0) {
+            $xml = substr($xml, $pos);
+        }
+        // CDATA dışındaki kaçak & -> &amp;
+        $placeholders = [];
+        $i = 0;
+        $xml = preg_replace_callback('/<!\[CDATA\[(.*?)\]\]>/s', function ($m) use (&$placeholders, &$i) {
+            $key = "__CDATA_{$i}__";
+            $placeholders[$key] = $m[0];
+            $i++;
+            return $key;
+        }, $xml);
+        $xml = preg_replace('/&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)/', '&amp;', $xml);
+        if ($placeholders) {
+            $xml = str_replace(array_keys($placeholders), array_values($placeholders), $xml);
+        }
+        return $xml;
+    }
+
+    public static function isValidXml(string $xml): bool
+    {
+        $xml = trim($xml);
+        if ($xml === '' || !str_starts_with(ltrim($xml), '<')) {
+            return false;
+        }
+        $prev = libxml_use_internal_errors(true);
+        $ok = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) !== false;
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        return $ok;
+    }
+
     public static function robustCountProducts(string $xml): int
     {
         $xml = trim($xml);
@@ -179,51 +223,5 @@ class ExportRunResource extends Resource
         if ($cnt > 0) return $cnt;
         if (preg_match_all('/<\s*StockCode(\s+[^>]*)?>/i', $xml, $m2)) return count($m2[0]);
         return 0;
-    }
-
-    /** Başındaki BOM/çöp karakterleri sil + CDATA dışındaki kaçak & işaretlerini düzelt */
-    public static function sanitizeXml(string $xml): string
-    {
-        // 1) BOM ve baştaki boşluk/çöpleri temizle
-        $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
-        $xml = ltrim($xml);
-        $pos = strpos($xml, '<');
-        if ($pos !== false && $pos > 0) {
-            $xml = substr($xml, $pos);
-        }
-
-        // 2) CDATA bloklarını koru, dışındaki "kaçak &" -> &amp;
-        $placeholders = [];
-        $i = 0;
-        $xml = preg_replace_callback('/<!\[CDATA\[(.*?)\]\]>/s', function ($m) use (&$placeholders, &$i) {
-            $key = "__CDATA_PLACEHOLDER_{$i}__";
-            $placeholders[$key] = $m[0];
-            $i++;
-            return $key;
-        }, $xml);
-
-        // &amp; vb. entity olmayan tüm &'leri yakala ve &amp; yap
-        $xml = preg_replace('/&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)/', '&amp;', $xml);
-
-        // CDATA’ları geri koy
-        if (!empty($placeholders)) {
-            $xml = str_replace(array_keys($placeholders), array_values($placeholders), $xml);
-        }
-
-        return $xml;
-    }
-
-    /** Hızlı XML doğrulaması */
-    public static function isValidXml(string $xml): bool
-    {
-        $xml = trim($xml);
-        if ($xml === '' || !str_starts_with(ltrim($xml), '<')) {
-            return false;
-        }
-        $prev = libxml_use_internal_errors(true);
-        $ok = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) !== false;
-        libxml_clear_errors();
-        libxml_use_internal_errors($prev);
-        return $ok;
     }
 }

@@ -3,9 +3,11 @@
 namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
 use App\Filament\Kadirmertozden\Resources\ExportRunResource;
+use App\Models\ExportRun;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class EditExportRun extends EditRecord
 {
@@ -13,15 +15,41 @@ class EditExportRun extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
+        // 1) Token düzenlemeyi kabul et
+        $token = strtoupper(trim((string) ($data['publish_token'] ?? '')));
+
+        // Boşsa otomatik üret
+        if ($token === '') {
+            $token = $this->generateUniqueToken();
+        }
+
+        // Format kontrolü (16–64 A–Z 0–9)
+        if (!preg_match('/^[A-Z0-9]{16,64}$/', $token)) {
+            throw new \RuntimeException('Geçersiz token formatı. Sadece A–Z ve 0–9; uzunluk 16–64 olmalı.');
+        }
+
+        // Benzersizlik
+        $exists = ExportRun::where('publish_token', $token)
+            ->where('id', '!=', $this->record->id)
+            ->exists();
+        if ($exists) {
+            throw new \RuntimeException('Bu token zaten kullanılıyor. Lütfen farklı bir token girin.');
+        }
+
+        $data['publish_token'] = $token;
+
+        // 2) Public URL senkron
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
-        $data['publish_token'] = $this->record->publish_token; // token sabit
         $data['path'] = $base . '/' . $data['publish_token'];
 
-        unset($data['xml_upload']);
-
+        // 3) export_profile_id mevcut kalsın
         if (!empty($this->record->export_profile_id)) {
             $data['export_profile_id'] = $this->record->export_profile_id;
         }
+
+        // xml_upload modeli kirletmesin
+        unset($data['xml_upload']);
+
         return $data;
     }
 
@@ -39,7 +67,7 @@ class EditExportRun extends EditRecord
                 $raw = Storage::disk($disk)->get($tmpPath);
                 $xml = ExportRunResource::sanitizeXml($raw);
                 if (!ExportRunResource::isValidXml($xml)) {
-                    throw new \RuntimeException('Geçersiz XML yüklendi. Kaçak & gibi karakterleri düzeltin veya metni <![CDATA[...]]> içine alın.');
+                    throw new \RuntimeException('Geçersiz XML yüklendi. Kaçak & vb. karakterleri düzeltin veya CDATA kullanın.');
                 }
 
                 if (!$record->storage_path) {
@@ -61,5 +89,13 @@ class EditExportRun extends EditRecord
                 ->danger()
                 ->send();
         }
+    }
+
+    private function generateUniqueToken(int $len = 26): string
+    {
+        do {
+            $token = Str::upper(Str::random($len));
+        } while (ExportRun::where('publish_token', $token)->exists());
+        return $token;
     }
 }
