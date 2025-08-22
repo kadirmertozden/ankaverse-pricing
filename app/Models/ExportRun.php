@@ -23,7 +23,7 @@ class ExportRun extends Model
 
     protected $casts = [
         'is_public'    => 'boolean',
-        'published_at' => 'datetime',
+        'published_at' => 'datetime', 
     ];
 
     public function getPublicUrlAttribute(): ?string
