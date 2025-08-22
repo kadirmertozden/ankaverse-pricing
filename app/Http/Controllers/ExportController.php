@@ -10,29 +10,20 @@ use Illuminate\Support\Str;
 
 class ExportController extends Controller
 {
-    /**
-     * Token ile XML göster – HERKESE AÇIK.
-     * Sadece ilgili kaydın kendi storage_path'i kullanılır.
-     * Dosya yoksa 404; başka kaydın dosyasına yönlendirme yapılmaz.
-     */
     public function publicShow(string $token)
     {
-        $run = ExportRun::query()
-            ->where('publish_token', $token)
-            ->firstOrFail();
+        $run = ExportRun::query()->where('publish_token', $token)->firstOrFail();
 
-        $disk = 'public'; // sabit disk
+        $disk = 'public';
+        $path = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
 
-        // storage_path yoksa varsayılan kuralı uygula
-        $storagePath = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
-
-        if (!Storage::disk($disk)->exists($storagePath)) {
+        if (!Storage::disk($disk)->exists($path)) {
             abort(404, 'XML dosyası bulunamadı.');
         }
 
-        $raw = Storage::disk($disk)->get($storagePath);
+        $raw = Storage::disk($disk)->get($path);
 
-        // Hafif sanitize: BOM/baş çöpü at
+        // Hafif sanitize (çıktıyı bozmadan)
         $xml = preg_replace('/^\xEF\xBB\xBF/', '', $raw ?? '');
         $xml = ltrim($xml);
         $pos = strpos($xml, '<');
@@ -42,7 +33,6 @@ class ExportController extends Controller
 
         return Response::make($xml, 200, [
             'Content-Type'        => 'application/xml; charset=utf-8',
-            // CDN/Tarayıcı cache karışmasın:
             'Cache-Control'       => 'no-store, no-cache, must-revalidate, max-age=0',
             'Pragma'              => 'no-cache',
             'Expires'             => '0',
@@ -51,22 +41,16 @@ class ExportController extends Controller
         ]);
     }
 
-    /**
-     * Admin’den imzalı link ile indir.
-     */
     public function adminDownload(Request $request, ExportRun $run)
     {
         $disk = 'public';
+        $path = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
 
-        $storagePath = $run->storage_path ?: ('exports/' . $run->publish_token . '.xml');
-        if (!Storage::disk($disk)->exists($storagePath)) {
+        if (!Storage::disk($disk)->exists($path)) {
             abort(404, 'XML dosyası bulunamadı.');
         }
 
         $filename = ($run->name ? Str::slug($run->name) : $run->publish_token) . '.xml';
-
-        return Storage::disk($disk)->download($storagePath, $filename, [
-            'Content-Type' => 'application/xml; charset=utf-8',
-        ]);
+        return Storage::disk($disk)->download($path, $filename, ['Content-Type' => 'application/xml; charset=utf-8']);
     }
 }
