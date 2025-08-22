@@ -14,17 +14,16 @@ class CreateExportRun extends CreateRecord
 {
     protected static string $resource = ExportRunResource::class;
 
-    /** FileUpload değeri (dehydrate=false olduğu için elle yakalayacağız) */
+    /** FileUpload yolunu geçici tutacağız */
     private ?string $uploadedTmpPath = null;
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // FileUpload state'ini kaydet (Form resetlenmeden önce!)
-        $state   = $this->form->getRawState();
-        $tmp     = $state['xml_upload'] ?? null;
-        $this->uploadedTmpPath = is_array($tmp) ? ($tmp[0] ?? null) : $tmp;
+        // FileUpload'tan gizli alana aktarılan yolu yakala
+        $this->uploadedTmpPath = isset($data['xml_tmp']) ? (string) $data['xml_tmp'] : null;
+        unset($data['xml_tmp']); // modele yazma
 
-        // Profil: aktif ilk veya ilk profil
+        // Profil
         $profile = ExportProfile::query()->where('is_active', true)->first()
                  ?: ExportProfile::query()->first();
         if (!$profile) {
@@ -41,7 +40,7 @@ class CreateExportRun extends CreateRecord
         $data['status']    = 'pending';
         $data['is_public'] = true;
 
-        // Modelde sütun olmadığı için
+        // xml_upload alanını modelden uzaklaştır
         unset($data['xml_upload']);
 
         return $data;
@@ -60,14 +59,11 @@ class CreateExportRun extends CreateRecord
 
             if ($this->uploadedTmpPath && Storage::disk($disk)->exists($this->uploadedTmpPath)) {
                 $raw = Storage::disk($disk)->get($this->uploadedTmpPath);
-                // Yardımcı mevcutsa kullan, yoksa minimum temizlik
-                if (method_exists(ExportRunResource::class, 'makeWellFormed')) {
-                    $xml = ExportRunResource::makeWellFormed($raw);
-                } else {
-                    $xml = trim($raw) !== '' ? trim($raw) : '<?xml version="1.0" encoding="UTF-8"?><Products/>';
-                }
+                $xml = method_exists(ExportRunResource::class, 'makeWellFormed')
+                    ? ExportRunResource::makeWellFormed($raw)
+                    : (trim($raw) !== '' ? trim($raw) : '<?xml version="1.0" encoding="UTF-8"?><Products/>');
             } else {
-                // Her durumda dosya oluşsun
+                // Yükleme gelmediyse bile bir placeholder yarat
                 $xml = '<?xml version="1.0" encoding="UTF-8"?><Products/>';
             }
 
@@ -81,9 +77,8 @@ class CreateExportRun extends CreateRecord
             $record->published_at = now();
             $record->save();
 
-            if ($this->uploadedTmpPath) {
-                try { Storage::disk($disk)->delete($this->uploadedTmpPath); } catch (\Throwable $e) {}
-            }
+            // Geçici dosyayı temizle
+            if ($this->uploadedTmpPath) { try { Storage::disk($disk)->delete($this->uploadedTmpPath); } catch (\Throwable $e) {} }
 
             Notification::make()->title('Export oluşturuldu')->success()->send();
         } catch (\Throwable $e) {
