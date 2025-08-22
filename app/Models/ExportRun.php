@@ -3,37 +3,58 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExportRun extends Model
 {
+    // Toplu atamaya izin verilen alanlar
+    protected $fillable = [
+        'export_profile_id',
+        'path',
+        'xml_content',      // formda varsa (dehydrated=false ise DB'ye yazılmayabilir; yine de güvenli dursun)
+        'status',
+        'product_count',
+        'is_public',
+        'published_at',
+        'publish_token',
+        'error',
+    ];
 
+    // (İstersen "her şey serbest" dersen:)
+    // protected $guarded = [];
 
-public function exportProfile()
-{
-    return $this->belongsTo(\App\Models\ExportProfile::class);
-}
+    protected $casts = [
+        'is_public'    => 'boolean',
+        'published_at' => 'datetime',
+        'product_count'=> 'integer',
+    ];
 
-public function getBasenameAttribute(): string
-{
-    return pathinfo($this->path ?? '', PATHINFO_FILENAME) ?: '';
-}
+    public function exportProfile(): BelongsTo
+    {
+        return $this->belongsTo(ExportProfile::class);
+    }
 
-public function getPublicUrlAttribute(): string
-{
-    return $this->basename ? url($this->basename . '.xml') : '';
-}
+    /** Yayın linki (public disk veya R2 CDN’e göre) */
+    public function getPublicUrlAttribute(): ?string
+    {
+        if (! $this->path) return null;
 
-public function getDownloadUrlAttribute(): string
-{
-    return $this->public_url ? ($this->public_url . '?dl=1') : '';
-}
+        // R2/CDN tanımlıysa onu kullan
+        $cdn = rtrim((string) env('CDN_PUBLIC_BASE', ''), '/');
+        if ($cdn !== '') {
+            return $cdn . '/' . ltrim($this->path, '/');
+        }
 
-// protected $appends = ['basename','public_url','download_url']; // istersen aç
+        // public disk URL’si
+        return \Storage::disk('public')->url($this->path);
+    }
 
-
-// İstersen otomatik eklensin
-// protected $appends = ['basename', 'public_url', 'download_url'];
-
-
+    /** İndir linki (kendi controller’ına gidiyorsa uyarlarsın) */
+    public function getDownloadUrlAttribute(): ?string
+    {
+        // Basit: public URL’i kullan
+        return $this->public_url;
+        // Ya da route tabanlı indirme kullanacaksan:
+        // return route('admin.exports.download', ['exportRun' => $this->id]);
+    }
 }
