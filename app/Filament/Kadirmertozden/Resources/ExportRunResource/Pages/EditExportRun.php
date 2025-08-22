@@ -13,13 +13,12 @@ class EditExportRun extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Token değiştirilmesin; path senkron
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
-        $data['publish_token'] = $this->record->publish_token;
+        $data['publish_token'] = $this->record->publish_token; // token sabit
         $data['path'] = $base . '/' . $data['publish_token'];
 
         unset($data['xml_upload']);
-        // export_profile_id mevcut kalsın
+
         if (!empty($this->record->export_profile_id)) {
             $data['export_profile_id'] = $this->record->export_profile_id;
         }
@@ -37,7 +36,11 @@ class EditExportRun extends EditRecord
 
         try {
             if ($tmpPath) {
-                $xml = Storage::disk($disk)->get($tmpPath);
+                $raw = Storage::disk($disk)->get($tmpPath);
+                $xml = ExportRunResource::sanitizeXml($raw);
+                if (!ExportRunResource::isValidXml($xml)) {
+                    throw new \RuntimeException('Geçersiz XML yüklendi. Lütfen sadece geçerli bir XML dosyası yükleyin.');
+                }
 
                 if (!$record->storage_path) {
                     $record->storage_path = 'exports/' . $record->id . '/feed.xml';

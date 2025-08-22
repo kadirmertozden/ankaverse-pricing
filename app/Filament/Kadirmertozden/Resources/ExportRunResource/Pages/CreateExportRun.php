@@ -16,7 +16,6 @@ class CreateExportRun extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Profil
         $profile = ExportProfile::query()->where('is_active', true)->first()
                  ?: ExportProfile::query()->first();
         if (!$profile) {
@@ -24,16 +23,14 @@ class CreateExportRun extends CreateRecord
         }
         $data['export_profile_id'] = $profile->id;
 
-        // Token & Path
         $data['publish_token'] = $this->generateUniqueToken();
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         $data['path'] = $base . '/' . $data['publish_token'];
 
-        // Varsayılanlar
         $data['status']    = 'pending';
         $data['is_public'] = true;
 
-        unset($data['xml_upload']); // modeleyi kirletmeyelim
+        unset($data['xml_upload']);
         return $data;
     }
 
@@ -49,7 +46,11 @@ class CreateExportRun extends CreateRecord
 
         try {
             if ($tmpPath) {
-                $xml = Storage::disk($disk)->get($tmpPath);
+                $raw = Storage::disk($disk)->get($tmpPath);
+                $xml = ExportRunResource::sanitizeXml($raw);
+                if (!ExportRunResource::isValidXml($xml)) {
+                    throw new \RuntimeException('Geçersiz XML yüklendi. Lütfen sadece geçerli bir XML dosyası yükleyin.');
+                }
 
                 if (!$record->storage_path) {
                     $record->storage_path = 'exports/' . $record->id . '/feed.xml';
@@ -78,7 +79,6 @@ class CreateExportRun extends CreateRecord
         do {
             $token = Str::upper(Str::random($len));
         } while (ExportRun::where('publish_token', $token)->exists());
-
         return $token;
     }
 }

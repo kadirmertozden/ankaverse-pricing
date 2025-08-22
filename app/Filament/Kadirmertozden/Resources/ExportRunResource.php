@@ -25,6 +25,7 @@ class ExportRunResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+            // SADECE: İsim + XML Yükle
             Forms\Components\TextInput::make('name')
                 ->label('İsim')
                 ->placeholder('Örn: HB Günlük Feed (08:00)')
@@ -42,7 +43,7 @@ class ExportRunResource extends Resource
                 ->dehydrated(false)
                 ->columnSpanFull(),
 
-            // Edit’te bilgilendirme amaçlı
+            // Edit’te bilgilendirme alanları (salt-okunur)
             Forms\Components\TextInput::make('publish_token')->label('Token')->disabled()
                 ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun),
             Forms\Components\TextInput::make('path')->label('Public URL')->disabled()
@@ -94,7 +95,8 @@ class ExportRunResource extends Resource
                                 if (!$record) return;
                                 $disk = $record->storage_disk ?? config('filesystems.default', 'public');
                                 if ($record->storage_path && Storage::disk($disk)->exists($record->storage_path)) {
-                                    $component->state(Storage::disk($disk)->get($record->storage_path));
+                                    $raw = Storage::disk($disk)->get($record->storage_path);
+                                    $component->state($raw);
                                 } else {
                                     $component->state('');
                                 }
@@ -105,10 +107,16 @@ class ExportRunResource extends Resource
                             $record->storage_path = 'exports/' . $record->id . '/feed.xml';
                             $record->save();
                         }
-                        $xml  = (string) $data['xml'];
-                        $disk = $record->storage_disk ?? config('filesystems.default', 'public');
 
+                        $raw  = (string) ($data['xml'] ?? '');
+                        $xml  = self::sanitizeXml($raw);
+                        if (!self::isValidXml($xml)) {
+                            throw new \RuntimeException('Geçersiz XML: Lütfen sadece geçerli bir XML içeriği kaydedin (başta \'<\' ile başlamalı).');
+                        }
+
+                        $disk = $record->storage_disk ?? config('filesystems.default', 'public');
                         Storage::disk($disk)->put($record->storage_path, $xml);
+
                         $record->product_count = self::robustCountProducts($xml);
                         $record->status = 'done';
                         $record->published_at = now();
@@ -129,17 +137,21 @@ class ExportRunResource extends Resource
         ];
     }
 
-    /* Helpers */
+    /* === Helpers === */
+
     public static function publicUrl(ExportRun $record): string
     {
         $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
         return $base . '/' . $record->publish_token;
     }
+
     public static function fileExists(ExportRun $record): bool
     {
         $disk = $record->storage_disk ?? config('filesystems.default', 'public');
         return $record->storage_path && Storage::disk($disk)->exists($record->storage_path);
     }
+
+    /** Ürün sayacı (Product/Urun/Item/StockCode fallback) */
     public static function robustCountProducts(string $xml): int
     {
         $xml = trim($xml);
@@ -168,5 +180,33 @@ class ExportRunResource extends Resource
         if ($cnt > 0) return $cnt;
         if (preg_match_all('/<\s*StockCode(\s+[^>]*)?>/i', $xml, $m2)) return count($m2[0]);
         return 0;
+    }
+
+    /** Başındaki BOM/çöp karakterleri sil ve ilk '<' dan itibaren kırp */
+    public static function sanitizeXml(string $xml): string
+    {
+        // UTF-8 BOM temizliği
+        $xml = preg_replace('/^\xEF\xBB\xBF/', '', $xml ?? '');
+        // Baştaki/sondaki boşlukları at
+        $xml = trim($xml);
+        // İlk '<' yerini bul ve öncesini at
+        $pos = strpos($xml, '<');
+        if ($pos !== false && $pos > 0) {
+            $xml = substr($xml, $pos);
+        }
+        return $xml;
+    }
+
+    /** Hızlı XML doğrulaması */
+    public static function isValidXml(string $xml): bool
+    {
+        if ($xml === '' || !str_starts_with(ltrim($xml), '<')) {
+            return false;
+        }
+        $prev = libxml_use_internal_errors(true);
+        $ok = simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) !== false;
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        return $ok;
     }
 }
