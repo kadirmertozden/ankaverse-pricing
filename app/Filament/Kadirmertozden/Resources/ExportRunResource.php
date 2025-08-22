@@ -33,14 +33,14 @@ class ExportRunResource extends Resource
 
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
-                ->helperText('XML dosyasını seçin. Kayıt oluşturulurken ürün sayısı otomatik hesaplanır, public link ve diğer alanlar kendiliğinden dolar.')
+                ->helperText('XML dosyasını seçin. Kayıt oluşturulunca ürün sayısı hesaplansın, public link ve diğer alanlar otomatik dolsun.')
                 ->acceptedFileTypes(['application/xml', 'text/xml', '.xml'])
                 ->disk(config('filesystems.default', 'public'))
                 ->directory('export_tmp')
                 ->preserveFilenames()
                 ->maxSize(10240) // 10MB
-                ->dehydrated(false) // Modele yazma
-                ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun) // sadece Create'te zorunlu
+                ->dehydrated(false) // modeleyi doldurma; afterCreate içinde alacağız
+                ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun)
                 ->columnSpanFull(),
         ])->columns(1);
     }
