@@ -12,7 +12,6 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class ExportRunResource extends Resource
 {
@@ -30,27 +29,26 @@ class ExportRunResource extends Resource
             Forms\Components\TextInput::make('name')
                 ->label('İsim')->maxLength(255)->required(),
 
-            // Geçici yükleme yolunu tutan gizli alan (dehydrate=true!)
+            // Geçici yükleme yolunu tutan gizli alan
             Forms\Components\Hidden::make('xml_tmp')->dehydrated(true),
 
             Forms\Components\FileUpload::make('xml_upload')
                 ->label('XML Yükle')
                 ->acceptedFileTypes(['application/xml','text/xml','.xml'])
                 ->disk('public')
-                ->directory('export_tmp')
+                ->directory('export_tmp')    // geçici klasör
                 ->preserveFilenames()
                 ->maxSize(10240)
                 ->dehydrated(false)
                 ->columnSpanFull()
                 ->required(fn ($livewire) => $livewire instanceof Pages\CreateExportRun)
                 ->afterStateUpdated(function ($state, Set $set) {
-                    // state dizi gelebilir
                     $path = is_array($state) ? ($state[0] ?? null) : $state;
                     $set('xml_tmp', $path ?: null);
                 }),
 
             Forms\Components\TextInput::make('publish_token')
-                ->label('Token')->helperText('BÜYÜK harf/rakam. Değiştirirsen link de değişir.')
+                ->label('Token (A–Z / 0–9)')
                 ->visible(fn ($livewire) => $livewire instanceof Pages\EditExportRun)
                 ->maxLength(64),
 
@@ -68,14 +66,11 @@ class ExportRunResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('id')->label('#')->sortable(),
                 Tables\Columns\TextColumn::make('name')->label('İsim')->searchable()->wrap(),
+                Tables\Columns\ToggleColumn::make('is_active')->label('Aktif'),
+                Tables\Columns\TextColumn::make('publish_token')->label('Token')->copyable(),
+                Tables\Columns\TextColumn::make('product_count')->label('Ürün')->sortable(),
 
-                Tables\Columns\TextColumn::make('publish_token')
-                    ->label('Token')->copyable(),
-
-                Tables\Columns\TextColumn::make('product_count')
-                    ->label('Ürün')->sortable(),
-
-                // Public URL (hesaplanan sütun) — getStateUsing ile, container sorunu yok
+                // Public URL — getStateUsing ile (Filament closure imzası doğru)
                 Tables\Columns\TextColumn::make('public_url')
                     ->label('Public URL')
                     ->getStateUsing(fn (ExportRun $r) => self::publicUrl($r))
@@ -83,7 +78,7 @@ class ExportRunResource extends Resource
                     ->copyable()
                     ->limit(64),
 
-                // Storage path — getStateUsing ile
+                // Storage path — hesaplanan görünüm
                 Tables\Columns\TextColumn::make('storage_path_view')
                     ->label('Dosya Yolu (storage)')
                     ->getStateUsing(fn (ExportRun $r) => $r->storage_path ?: ('exports/' . $r->publish_token . '.xml'))
@@ -137,8 +132,6 @@ class ExportRunResource extends Resource
 
                             $record->storage_path  = $desired;
                             $record->product_count = self::robustCountProducts($xml);
-                            $record->published_at  = now();
-                            $record->status        = 'done';
                             $record->save();
 
                             Notification::make()->title('XML kaydedildi')->success()->send();
@@ -168,7 +161,7 @@ class ExportRunResource extends Resource
 
     public static function publicUrl(ExportRun $record): string
     {
-        $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE','https://xml.ankaverse.com.tr')), '/');
+        $base = rtrim(env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr'), '/');
         return $base . '/' . $record->publish_token;
     }
 
@@ -221,13 +214,36 @@ class ExportRunResource extends Resource
     public static function robustCountProducts(string $xml): int
     {
         $xml = trim($xml); if ($xml === '') return 0;
+
+        // 1) XMLReader ile say
         $tags = ['Product','product','Urun','urun','Item','item'];
-        $cnt=0; $r=new \XMLReader();
-        $ok = @$r->XML($xml, null, LIBXML_NONET|LIBXML_NOENT|LIBXML_NOWARNING|LIBXML_NOERROR);
-        if ($ok) { try { while (@$r->read()) { if ($r->nodeType===\XMLReader::ELEMENT && in_array($r->name,$tags,true)) { $cnt++; } } } finally { $r->close(); } if ($cnt>0) return $cnt; }
-        foreach ($tags as $t) { if (preg_match_all('/<\s*'.preg_quote($t,'/').'(\s+[^>]*)?>/i', $xml, $m)) { $cnt += count($m[0]); } }
-        if ($cnt>0) return $cnt;
+        $cnt = 0;
+        $reader = new \XMLReader();
+        $ok = @$reader->XML($xml, null, LIBXML_NONET | LIBXML_NOENT | LIBXML_NOWARNING | LIBXML_NOERROR);
+        if ($ok) {
+            try {
+                while (@$reader->read()) {
+                    if ($reader->nodeType === \XMLReader::ELEMENT && in_array($reader->name, $tags, true)) {
+                        $cnt++;
+                    }
+                }
+            } finally {
+                $reader->close();
+            }
+            if ($cnt > 0) return $cnt;
+        }
+
+        // 2) Basit regex fallback
+        foreach ($tags as $t) {
+            if (preg_match_all('/<\s*' . preg_quote($t, '/') . '(\s+[^>]*)?>/i', $xml, $m)) {
+                $cnt += count($m[0]);
+            }
+        }
+        if ($cnt > 0) return $cnt;
+
+        // 3) Bazı feed’lerde farklı etiket
         if (preg_match_all('/<\s*StockCode(\s+[^>]*)?>/i', $xml, $m2)) return count($m2[0]);
+
         return 0;
     }
 }

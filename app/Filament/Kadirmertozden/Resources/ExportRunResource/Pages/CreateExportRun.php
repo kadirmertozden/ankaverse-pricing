@@ -4,7 +4,6 @@ namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
 use App\Filament\Kadirmertozden\Resources\ExportRunResource;
 use App\Models\ExportRun;
-use App\Models\ExportProfile;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Facades\Storage;
@@ -22,20 +21,8 @@ class CreateExportRun extends CreateRecord
         $this->uploadedTmpPath = isset($data['xml_tmp']) ? (string) $data['xml_tmp'] : null;
         unset($data['xml_tmp'], $data['xml_upload']); // modele yazma
 
-        // Profil (varsa aktif; yoksa ilk)
-        $profile = ExportProfile::query()->where('is_active', true)->first()
-                 ?: ExportProfile::query()->first();
-        if (! $profile) {
-            throw new \RuntimeException('ExportProfile bulunamadı. Lütfen önce bir Export Profile oluşturun.');
-        }
-        $data['export_profile_id'] = $profile->id;
-
         // Token
         $data['publish_token'] = $data['publish_token'] ?? $this->generateUniqueToken();
-
-        // Varsayılanlar
-        $data['status']    = $data['status']    ?? 'pending';
-        $data['is_public'] = $data['is_public'] ?? true;
 
         return $data;
     }
@@ -61,8 +48,6 @@ class CreateExportRun extends CreateRecord
 
             $record->storage_path  = $dest;
             $record->product_count = ExportRunResource::robustCountProducts($xml);
-            $record->status        = 'done';
-            $record->published_at  = now();
             $record->save();
 
             // tmp temizliği

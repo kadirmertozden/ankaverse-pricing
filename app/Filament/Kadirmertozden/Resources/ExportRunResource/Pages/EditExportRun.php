@@ -30,8 +30,6 @@ class EditExportRun extends EditRecord
 
             $this->record->storage_path  = $dest;
             $this->record->product_count = ExportRunResource::robustCountProducts($xml);
-            $this->record->published_at  = now();
-            $this->record->status        = 'done';
             $this->record->save();
 
             try { Storage::disk($disk)->delete($tmp); } catch (\Throwable $e) {}
@@ -42,3 +40,4 @@ class EditExportRun extends EditRecord
         }
     }
 }
+ 

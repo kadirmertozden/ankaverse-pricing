@@ -10,7 +10,7 @@ class ExportRunController extends Controller
 {
     public function show(string $token)
     {
-        // Herkese açık: is_active filtresi yok.
+        // Herkese açık: is_active filtresi YOK
         $record = ExportRun::where('publish_token', $token)->firstOrFail();
 
         $disk = Storage::disk('public');

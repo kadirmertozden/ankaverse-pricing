@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
 
 class ExportRun extends Model
 {
@@ -22,15 +21,15 @@ class ExportRun extends Model
         'product_count' => 'integer',
     ];
 
-    public static function boot()
+    protected static function boot()
     {
         parent::boot();
 
-        static::creating(function (ExportRun $model) {
+        static::creating(function (self $model) {
             if (empty($model->publish_token)) {
                 $model->publish_token = self::generateToken();
             }
-            if (empty($model->is_active)) {
+            if ($model->is_active === null) {
                 $model->is_active = true;
             }
         });
@@ -38,7 +37,6 @@ class ExportRun extends Model
 
     public static function generateToken(int $len = 26): string
     {
-        // Büyük harf + rakam
         $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
         $token = '';
         for ($i = 0; $i < $len; $i++) {
