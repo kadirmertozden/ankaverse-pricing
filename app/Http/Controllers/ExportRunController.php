@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\ExportRun;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 
@@ -11,22 +10,22 @@ class ExportRunController extends Controller
 {
     public function show(string $token)
     {
-        // İSTENEN: Herkes erişebilsin -> is_active FİLTRESİ YOK
+        // Herkese açık: is_active filtresi yok.
         $record = ExportRun::where('publish_token', $token)->firstOrFail();
 
         $disk = Storage::disk('public');
         $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
 
-        if (!$disk->exists($path)) {
+        if (! $disk->exists($path)) {
             abort(404);
         }
 
         $content = $disk->get($path);
 
         return Response::make($content, 200, [
-            'Content-Type' => 'application/xml; charset=UTF-8',
+            'Content-Type'  => 'application/xml; charset=UTF-8',
             'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-            'Pragma' => 'no-cache',
+            'Pragma'        => 'no-cache',
         ]);
     }
 
@@ -37,7 +36,7 @@ class ExportRunController extends Controller
         $disk = Storage::disk('public');
         $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
 
-        if (!$disk->exists($path)) {
+        if (! $disk->exists($path)) {
             abort(404);
         }
 

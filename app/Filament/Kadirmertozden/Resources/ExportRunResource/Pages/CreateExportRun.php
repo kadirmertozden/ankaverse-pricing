@@ -18,26 +18,24 @@ class CreateExportRun extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Hidden alan: xml_tmp
+        // FileUpload yolunu gizli alandan al
         $this->uploadedTmpPath = isset($data['xml_tmp']) ? (string) $data['xml_tmp'] : null;
-        unset($data['xml_tmp'], $data['xml_upload']); // modele yazmayalım
+        unset($data['xml_tmp'], $data['xml_upload']); // modele yazma
 
-        // Profil (varsa aktif, yoksa ilk)
+        // Profil (varsa aktif; yoksa ilk)
         $profile = ExportProfile::query()->where('is_active', true)->first()
                  ?: ExportProfile::query()->first();
-        if (!$profile) {
+        if (! $profile) {
             throw new \RuntimeException('ExportProfile bulunamadı. Lütfen önce bir Export Profile oluşturun.');
         }
         $data['export_profile_id'] = $profile->id;
 
-        // Token ve public path
+        // Token
         $data['publish_token'] = $data['publish_token'] ?? $this->generateUniqueToken();
-        $base = rtrim(config('services.xml_public_base', env('XML_PUBLIC_BASE', 'https://xml.ankaverse.com.tr')), '/');
-        $data['path'] = $base . '/' . $data['publish_token'];
 
         // Varsayılanlar
-        $data['status']    = 'pending';
-        $data['is_public'] = true;
+        $data['status']    = $data['status']    ?? 'pending';
+        $data['is_public'] = $data['is_public'] ?? true;
 
         return $data;
     }
@@ -47,33 +45,34 @@ class CreateExportRun extends CreateRecord
         /** @var ExportRun $record */
         $record = $this->record;
         $disk   = 'public';
-        $desiredPath = 'exports/' . $record->publish_token . '.xml';
+        $dest   = 'exports/' . $record->publish_token . '.xml';
 
         try {
-            // Geçici dosyayı oku; yoksa placeholder
+            // Geçici dosyayı public diskten oku
             if ($this->uploadedTmpPath && Storage::disk($disk)->exists($this->uploadedTmpPath)) {
                 $raw = Storage::disk($disk)->get($this->uploadedTmpPath);
                 $xml = ExportRunResource::makeWellFormed($raw);
             } else {
+                // Yükleme gelmediyse dahi boş şablon yaz (404 olmasın)
                 $xml = '<?xml version="1.0" encoding="UTF-8"?><Products/>';
             }
 
-            Storage::disk($disk)->put($desiredPath, $xml);
+            Storage::disk($disk)->put($dest, $xml);
 
-            $record->storage_path  = $desiredPath;
+            $record->storage_path  = $dest;
             $record->product_count = ExportRunResource::robustCountProducts($xml);
             $record->status        = 'done';
             $record->published_at  = now();
             $record->save();
 
-            // tmp dosyayı temizle
+            // tmp temizliği
             if ($this->uploadedTmpPath) {
                 try { Storage::disk($disk)->delete($this->uploadedTmpPath); } catch (\Throwable $e) {}
             }
 
             Notification::make()->title('XML yüklendi')->success()->send();
         } catch (\Throwable $e) {
-            Notification::make()->title('XML işlenirken hata')->body($e->getMessage())->danger()->send();
+            Notification::make()->title('XML işlenemedi')->body($e->getMessage())->danger()->send();
         }
     }
 
