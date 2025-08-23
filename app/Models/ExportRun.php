@@ -14,6 +14,7 @@ class ExportRun extends Model
         'storage_path',
         'product_count',
         'is_active',
+        'export_profile_id', // <-- EKLENDİ
     ];
 
     protected $casts = [

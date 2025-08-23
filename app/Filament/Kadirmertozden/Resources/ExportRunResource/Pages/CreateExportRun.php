@@ -4,6 +4,7 @@ namespace App\Filament\Kadirmertozden\Resources\ExportRunResource\Pages;
 
 use App\Filament\Kadirmertozden\Resources\ExportRunResource;
 use App\Models\ExportRun;
+use App\Models\ExportProfile; // <-- EKLENDİ
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Facades\Storage;
@@ -21,8 +22,22 @@ class CreateExportRun extends CreateRecord
         $this->uploadedTmpPath = isset($data['xml_tmp']) ? (string) $data['xml_tmp'] : null;
         unset($data['xml_tmp'], $data['xml_upload']); // modele yazma
 
+        // ZORUNLU: export_profile_id ver
+        $profile = ExportProfile::query()->where('is_active', true)->first()
+                 ?: ExportProfile::query()->first();
+
+        if (! $profile) {
+            // Kullanıcıya net uyarı verelim, DB hatasına düşmesin
+            throw new \RuntimeException('ExportProfile bulunamadı. Lütfen önce bir Export Profile oluşturun (admin/export-profiles).');
+        }
+
+        $data['export_profile_id'] = $profile->id;
+
         // Token
         $data['publish_token'] = $data['publish_token'] ?? $this->generateUniqueToken();
+
+        // Varsayılanlar
+        $data['is_active'] = $data['is_active'] ?? true;
 
         return $data;
     }
