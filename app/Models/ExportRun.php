@@ -2,57 +2,56 @@
 
 namespace App\Models;
 
+use App\Support\XmlNormalizer;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ExportRun extends Model
 {
+    use HasFactory;
+
     protected $table = 'export_runs';
 
     protected $fillable = [
         'name',
+        'export_profile_id',
         'publish_token',
-        'storage_path',
-        'product_count',
         'is_active',
-        'export_profile_id', // <-- EKLENDİ
+        'xml',           // DB'de longText ise burada tutulabilir (varsayıyoruz)
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
-        'product_count' => 'integer',
     ];
 
-    protected static function boot()
+    public function exportProfile()
     {
-        parent::boot();
+        return $this->belongsTo(ExportProfile::class, 'export_profile_id');
+    }
 
-        static::creating(function (self $model) {
-            if (empty($model->publish_token)) {
-                $model->publish_token = self::generateToken();
-            }
-            if ($model->is_active === null) {
-                $model->is_active = true;
+    protected static function booted(): void
+    {
+        static::creating(function (self $run) {
+            if (empty($run->publish_token)) {
+                $run->publish_token = Str::upper(Str::random(26));
             }
         });
-    }
 
-    public static function generateToken(int $len = 26): string
-    {
-        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        $token = '';
-        for ($i = 0; $i < $len; $i++) {
-            $token .= $alphabet[random_int(0, strlen($alphabet) - 1)];
-        }
-        return $token;
-    }
+        // Her save'de normalize et ve diske yaz
+        static::saved(function (self $run) {
+            if (!empty($run->xml) && !empty($run->publish_token)) {
+                $normalized = XmlNormalizer::normalizeProductsXml($run->xml);
+                $run->xml = $normalized; // DB'de de normal tutmak istersen
 
-    public function getPublishUrlAttribute(): string
-    {
-        return route('exports.show', ['token' => $this->publish_token]);
-    }
+                $path = "exports/{$run->publish_token}.xml";
+                Storage::disk('public')->put($path, $normalized);
 
-    public function getDownloadUrlAttribute(): string
-    {
-        return route('exports.download', ['token' => $this->publish_token]);
+                // Ayrı bir sütun kullanmıyorsan dosya yolu DB'ye yazmak şart değil.
+                // $run->storage_path = $path; // sütunun varsa
+                // $run->saveQuietly(); // tekrar tetiklememek için
+            }
+        });
     }
 }

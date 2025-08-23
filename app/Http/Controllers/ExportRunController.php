@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ExportRun;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 
@@ -10,41 +11,29 @@ class ExportRunController extends Controller
 {
     public function show(string $token)
     {
-        // Herkese açık: is_active filtresi YOK
-        $record = ExportRun::where('publish_token', $token)->firstOrFail();
+        $path = "exports/{$token}.xml";
 
-        $disk = Storage::disk('public');
-        $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
-
-        if (! $disk->exists($path)) {
+        if (!Storage::disk('public')->exists($path)) {
             abort(404);
         }
 
-        $content = $disk->get($path);
+        $xml = Storage::disk('public')->get($path);
 
-        return Response::make($content, 200, [
-            'Content-Type'  => 'application/xml; charset=UTF-8',
-            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-            'Pragma'        => 'no-cache',
+        return Response::make($xml, 200, [
+            'Content-Type' => 'application/xml; charset=UTF-8',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
     }
 
     public function download(string $token)
     {
-        $record = ExportRun::where('publish_token', $token)->firstOrFail();
+        $path = "exports/{$token}.xml";
 
-        $disk = Storage::disk('public');
-        $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
-
-        if (! $disk->exists($path)) {
+        if (!Storage::disk('public')->exists($path)) {
             abort(404);
         }
 
-        $filename = $record->publish_token . '.xml';
-
-        return Response::streamDownload(function () use ($disk, $path) {
-            echo $disk->get($path);
-        }, $filename, [
+        return Storage::disk('public')->download($path, "{$token}.xml", [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
     }
