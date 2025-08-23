@@ -11,16 +11,17 @@ class ExportRunController extends Controller
 {
     public function show(string $token)
     {
-        $record = ExportRun::where('publish_token', $token)
-            ->where('is_active', true)
-            ->firstOrFail();
+        // İSTENEN: Herkes erişebilsin -> is_active FİLTRESİ YOK
+        $record = ExportRun::where('publish_token', $token)->firstOrFail();
 
         $disk = Storage::disk('public');
-        if (!$record->storage_path || !$disk->exists($record->storage_path)) {
+        $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
+
+        if (!$disk->exists($path)) {
             abort(404);
         }
 
-        $content = $disk->get($record->storage_path);
+        $content = $disk->get($path);
 
         return Response::make($content, 200, [
             'Content-Type' => 'application/xml; charset=UTF-8',
@@ -34,13 +35,16 @@ class ExportRunController extends Controller
         $record = ExportRun::where('publish_token', $token)->firstOrFail();
 
         $disk = Storage::disk('public');
-        if (!$record->storage_path || !$disk->exists($record->storage_path)) {
+        $path = $record->storage_path ?: ('exports/' . $record->publish_token . '.xml');
+
+        if (!$disk->exists($path)) {
             abort(404);
         }
 
         $filename = $record->publish_token . '.xml';
-        return Response::streamDownload(function () use ($disk, $record) {
-            echo $disk->get($record->storage_path);
+
+        return Response::streamDownload(function () use ($disk, $path) {
+            echo $disk->get($path);
         }, $filename, [
             'Content-Type' => 'application/xml; charset=UTF-8',
         ]);
