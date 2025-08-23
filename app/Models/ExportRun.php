@@ -2,56 +2,87 @@
 
 namespace App\Models;
 
-use App\Support\XmlNormalizer;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class ExportRun extends Model
 {
-    use HasFactory;
-
     protected $table = 'export_runs';
 
     protected $fillable = [
         'name',
-        'export_profile_id',
         'publish_token',
+        'storage_path',
         'is_active',
-        'xml',           // DB'de longText ise burada tutulabilir (varsayıyoruz)
+        'export_profile_id',
+        'source_url',
+        'auto_sync',
+        'sync_interval_minutes',
+        'last_synced_at',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'auto_sync' => 'boolean',
+        'last_synced_at' => 'datetime',
     ];
 
-    public function exportProfile()
+    // token otomatik üretim (boşsa)
+    protected static function booted()
     {
-        return $this->belongsTo(ExportProfile::class, 'export_profile_id');
+        static::creating(function (ExportRun $m) {
+            if (empty($m->publish_token)) {
+                // 26-32 char arası sağlam bir token
+                $m->publish_token = strtoupper(Str::random(27));
+            }
+        });
     }
 
-    protected static function booted(): void
+    public function publicUrl(): string
     {
-        static::creating(function (self $run) {
-            if (empty($run->publish_token)) {
-                $run->publish_token = Str::upper(Str::random(26));
-            }
-        });
+        return url($this->publish_token);
+    }
 
-        // Her save'de normalize et ve diske yaz
-        static::saved(function (self $run) {
-            if (!empty($run->xml) && !empty($run->publish_token)) {
-                $normalized = XmlNormalizer::normalizeProductsXml($run->xml);
-                $run->xml = $normalized; // DB'de de normal tutmak istersen
+    public function downloadUrl(): string
+    {
+        return url($this->publish_token . '/download');
+    }
 
-                $path = "exports/{$run->publish_token}.xml";
-                Storage::disk('public')->put($path, $normalized);
+    public function storageDisk(): string
+    {
+        return 'public';
+    }
 
-                // Ayrı bir sütun kullanmıyorsan dosya yolu DB'ye yazmak şart değil.
-                // $run->storage_path = $path; // sütunun varsa
-                // $run->saveQuietly(); // tekrar tetiklememek için
-            }
-        });
+    public function storageExists(): bool
+    {
+        return $this->storage_path && Storage::disk($this->storageDisk())->exists($this->storage_path);
+    }
+
+    public function readXmlOrNull(): ?string
+    {
+        if (!$this->storageExists()) return null;
+        return Storage::disk($this->storageDisk())->get($this->storage_path);
+    }
+
+    public function writeXml(string $xml): void
+    {
+        if (!$this->storage_path) {
+            $this->storage_path = 'exports/' . $this->publish_token . '.xml';
+        }
+        Storage::disk($this->storageDisk())->put($this->storage_path, $xml);
+        $this->save();
+    }
+
+    public function dueForSync(): bool
+    {
+        if (!$this->auto_sync) return false;
+        if (!$this->source_url) return false;
+        if ($this->sync_interval_minutes <= 0) return true;
+
+        $last = $this->last_synced_at ?? Carbon::create(2000,1,1);
+        return $last->addMinutes($this->sync_interval_minutes)->isPast();
     }
 }
+ 

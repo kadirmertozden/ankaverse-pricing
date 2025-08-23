@@ -9,32 +9,32 @@ use Illuminate\Support\Facades\Storage;
 
 class ExportRunController extends Controller
 {
+    // Public: herkes erişebilsin
     public function show(string $token)
     {
-        $path = "exports/{$token}.xml";
+        $run = ExportRun::where('publish_token', $token)->first();
 
-        if (!Storage::disk('public')->exists($path)) {
-            abort(404);
+        if (!$run || !$run->storageExists()) {
+            abort(404, 'XML not found');
         }
 
-        $xml = Storage::disk('public')->get($path);
-
-        return Response::make($xml, 200, [
+        $xml = $run->readXmlOrNull();
+        return response($xml, 200, [
             'Content-Type' => 'application/xml; charset=UTF-8',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
     }
 
+    // Public download
     public function download(string $token)
     {
-        $path = "exports/{$token}.xml";
+        $run = ExportRun::where('publish_token', $token)->first();
 
-        if (!Storage::disk('public')->exists($path)) {
-            abort(404);
+        if (!$run || !$run->storageExists()) {
+            abort(404, 'XML not found');
         }
 
-        return Storage::disk('public')->download($path, "{$token}.xml", [
-            'Content-Type' => 'application/xml; charset=UTF-8',
-        ]);
+        $path = $run->storage_path;
+        return Storage::disk($run->storageDisk())->download($path, basename($path));
     }
 }

@@ -3,13 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ExportRunController;
 
-// (diğer rotalar)
+// Filament/Admin rotalarınız zaten panel tanımlarından geliyor.
 
-// Herkese açık yayın (yalnızca 20–64 uzunlukta BÜYÜK HARF + RAKAM token)
-Route::get('/{token}', [ExportRunController::class, 'show'])
-    ->where('token', '^[A-Z0-9]{20,64}$')
-    ->name('exports.show');
-
-Route::get('/{token}/download', [ExportRunController::class, 'download'])
-    ->where('token', '^[A-Z0-9]{20,64}$')
-    ->name('exports.download');
+// Public XML göster & indir
+Route::get('{token}', [ExportRunController::class, 'show'])->name('exports.show');
+Route::get('{token}/download', [ExportRunController::class, 'download'])->name('exports.download');
